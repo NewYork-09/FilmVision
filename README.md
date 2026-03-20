@@ -13,6 +13,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 Get your keys:
+
 (PM niyo ko or message lang kayo sa discord for the api key, i dont wanna put them here kasi para satin lang)
 
 ### 3. Run the app
