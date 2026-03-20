@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FilmVision — Film Strategic Analytics</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #16161f;
+    --border: rgba(255,255,255,0.07);
+    --accent: #e8c46a;
+    --accent2: #c084fc;
+    --accent3: #38bdf8;
+    --text: #f0ece4;
+    --muted: #6b6a75;
+    --danger: #f87171;
+    --success: #4ade80;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.4;
+  }
+
+  header {
+    padding: 2.5rem 4rem 2rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-end;
+    gap: 2rem;
+    position: relative;
+  }
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 4rem;
+    width: 80px; height: 2px;
+    background: var(--accent);
+  }
+  .logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.4rem;
+    font-weight: 900;
+    color: var(--accent);
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .logo span { color: var(--text); font-style: italic; font-weight: 400; }
+  .tagline {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding-bottom: 0.3rem;
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    min-height: calc(100vh - 100px);
+  }
+
+  .form-panel {
+    border-right: 1px solid var(--border);
+    padding: 2.5rem 2rem;
+    overflow-y: auto;
+    background: var(--surface);
+  }
+
+  .section-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .field-group { margin-bottom: 1.4rem; }
+  .field-group label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  select, input, textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.85rem;
+    padding: 0.7rem 0.9rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    appearance: none;
+  }
+  select:focus, input:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232,196,106,0.08);
+  }
+  textarea { resize: vertical; min-height: 80px; }
+  select option { background: var(--surface2); }
+
+  /* MULTI-SELECT */
+  .multi-select-wrapper {
+    position: relative;
+  }
+  .multi-select-display {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.85rem;
+    padding: 0.7rem 0.9rem;
+    cursor: pointer;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-height: 42px;
+    align-items: center;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    user-select: none;
+  }
+  .multi-select-display:focus, .multi-select-display.open {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232,196,106,0.08);
+  }
+  .multi-select-display .placeholder {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .tag {
+    background: rgba(232,196,106,0.15);
+    border: 1px solid rgba(232,196,106,0.3);
+    color: var(--accent);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+  }
+  .tag .remove {
+    cursor: pointer;
+    opacity: 0.7;
+    font-size: 0.75rem;
+    line-height: 1;
+  }
+  .tag .remove:hover { opacity: 1; }
+  .multi-select-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    z-index: 100;
+    max-height: 200px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .multi-select-dropdown.open { display: block; }
+  .multi-select-option {
+    padding: 0.6rem 0.9rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    transition: background 0.15s;
+  }
+  .multi-select-option:hover { background: rgba(255,255,255,0.05); }
+  .multi-select-option.selected { color: var(--accent); }
+  .multi-select-option .check {
+    width: 14px; height: 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.6rem;
+    flex-shrink: 0;
+  }
+  .multi-select-option.selected .check {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0a0f;
+  }
+  .multi-select-arrow {
+    margin-left: auto;
+    font-size: 0.6rem;
+    color: var(--muted);
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .multi-select-display.open .multi-select-arrow { transform: rotate(180deg); }
+
+  /* THEME AUTOCOMPLETE */
+  .autocomplete-wrapper { position: relative; }
+  .autocomplete-list {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    z-index: 100;
+    max-height: 180px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .autocomplete-list.open { display: block; }
+  .autocomplete-item {
+    padding: 0.55rem 0.9rem;
+    font-size: 0.83rem;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: var(--text);
+  }
+  .autocomplete-item:hover, .autocomplete-item.active {
+    background: rgba(232,196,106,0.1);
+    color: var(--accent);
+  }
+  .autocomplete-item span { color: var(--accent); font-weight: 700; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+
+  .analyze-btn {
+    width: 100%;
+    margin-top: 1.8rem;
+    padding: 1rem;
+    background: var(--accent);
+    color: #0a0a0f;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .analyze-btn:hover { background: #f0d080; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(232,196,106,0.25); }
+  .analyze-btn:active { transform: translateY(0); }
+  .analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .analyze-btn .btn-text { display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+
+  .results-panel {
+    padding: 2.5rem 3rem;
+    overflow-y: auto;
+  }
+
+  .empty-state {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  .empty-icon { font-size: 3.5rem; opacity: 0.3; }
+  .empty-state h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.5rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .empty-state p {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    max-width: 280px;
+    line-height: 1.8;
+  }
+
+  /* SUCCESS BLOCK */
+  .success-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    animation: fadeUp 0.5s ease both;
+  }
+  .success-top {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 1.5rem;
+    align-items: center;
+    margin-bottom: 1.8rem;
+  }
+  .success-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+  .success-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    margin-bottom: 0.4rem;
+  }
+  .commercial-reason {
+    font-size: 0.8rem;
+    line-height: 1.7;
+    color: rgba(240,236,228,0.75);
+    background: rgba(232,196,106,0.05);
+    border: 1px solid rgba(232,196,106,0.1);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    margin-bottom: 1.5rem;
+    font-style: italic;
+  }
+  .ml-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: var(--accent2);
+    margin-bottom: 0.8rem;
+    opacity: 0.8;
+  }
+  .meter-track {
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 1.5s cubic-bezier(0.16,1,0.3,1);
+    width: 0%;
+  }
+  .meter-fill.low { background: var(--danger); }
+  .meter-fill.mid { background: var(--accent); }
+  .meter-fill.high { background: var(--success); }
+  .meter-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+  .rate-number {
+    font-family: 'Playfair Display', serif;
+    font-size: 4rem;
+    font-weight: 900;
+    line-height: 1;
+    text-align: center;
+  }
+  .rate-number span {
+    font-size: 1.4rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  /* SUB-METRICS */
+  .sub-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+  .sub-metric {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .sub-metric-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+  .sub-metric-bar-track {
+    height: 5px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-bottom: 0.4rem;
+  }
+  .sub-metric-bar {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 1.8s cubic-bezier(0.16,1,0.3,1);
+    width: 0%;
+  }
+  .sub-metric-value {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .sub-metric-desc {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+    line-height: 1.5;
+  }
+  .sub-metric-reason {
+    font-size: 0.72rem;
+    color: rgba(240,236,228,0.55);
+    line-height: 1.55;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .block-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .block-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .films-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .film-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+    color: inherit;
+  }
+  .film-card:hover { border-color: rgba(232,196,106,0.3); transform: translateY(-2px); }
+  .film-poster {
+    width: 100%;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    background: var(--surface2);
+  }
+  .film-poster-placeholder {
+    width: 100%;
+    aspect-ratio: 2/3;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    color: var(--muted);
+  }
+  .film-info { padding: 0.8rem; }
+  .film-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+    line-height: 1.3;
+  }
+  .film-meta {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  .film-score { color: var(--accent); font-weight: 500; }
+  .film-plot {
+    font-size: 0.73rem;
+    line-height: 1.5;
+    color: rgba(240,236,228,0.65);
+    margin-bottom: 0.5rem;
+    font-style: italic;
+  }
+  .film-reason {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--accent2);
+    line-height: 1.5;
+    border-top: 1px solid var(--border);
+    padding-top: 0.5rem;
+    margin-top: 0.3rem;
+  }
+  .film-link-hint {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  /* AI ANALYSIS */
+  .analysis-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    animation: fadeUp 0.6s ease both;
+  }
+  .assessment-text {
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    line-height: 1.7;
+    font-style: italic;
+    color: rgba(240,236,228,0.9);
+    border-left: 3px solid var(--accent);
+    padding-left: 1.2rem;
+    margin-bottom: 1.5rem;
+  }
+  .pills-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.2rem; }
+  .pill {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 99px;
+    letter-spacing: 0.05em;
+  }
+  .pill.strength { background: rgba(74,222,128,0.1); color: var(--success); border: 1px solid rgba(74,222,128,0.2); }
+  .pill.risk { background: rgba(248,113,113,0.1); color: var(--danger); border: 1px solid rgba(248,113,113,0.2); }
+  .suggestions-list { display: flex; flex-direction: column; gap: 1rem; }
+  .suggestion-item {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    border-left: 3px solid var(--accent2);
+  }
+  .suggestion-title { font-size: 0.82rem; font-weight: 700; color: var(--accent2); margin-bottom: 0.3rem; }
+  .suggestion-detail { font-size: 0.8rem; line-height: 1.6; color: rgba(240,236,228,0.75); }
+  .routes-list { display: flex; flex-direction: column; gap: 0.8rem; margin-top: 1rem; }
+  .route-item {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    border-left: 3px solid var(--accent3);
+  }
+  .route-title { font-size: 0.82rem; font-weight: 700; color: var(--accent3); margin-bottom: 0.3rem; }
+  .route-rationale { font-size: 0.8rem; line-height: 1.6; color: rgba(240,236,228,0.75); }
+  .market-insight {
+    background: linear-gradient(135deg, rgba(232,196,106,0.06), rgba(192,132,252,0.06));
+    border: 1px solid rgba(232,196,106,0.15);
+    border-radius: 10px;
+    padding: 1.2rem 1.5rem;
+    margin-top: 1.5rem;
+    font-family: 'Playfair Display', serif;
+    font-size: 0.9rem;
+    font-style: italic;
+    line-height: 1.7;
+    color: rgba(240,236,228,0.85);
+  }
+  .market-insight::before {
+    content: '💡 Market Insight — ';
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-style: normal;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  /* LOADING */
+  .loading-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(10,10,15,0.85);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 1.5rem;
+    backdrop-filter: blur(4px);
+  }
+  .loading-overlay.active { display: flex; }
+  .loading-spinner {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  .loading-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .stagger-1 { animation-delay: 0.1s; }
+  .stagger-2 { animation-delay: 0.2s; }
+  .stagger-3 { animation-delay: 0.3s; }
+  .stagger-4 { animation-delay: 0.4s; }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    header { padding: 1.5rem 1.5rem 1rem; }
+    .form-panel { border-right: none; border-bottom: 1px solid var(--border); }
+    .results-panel { padding: 1.5rem; }
+    .films-grid { grid-template-columns: repeat(2, 1fr); }
+    .sub-metrics { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Film<span>Vision</span></div>
+  <div class="tagline">Film Strategic Analytics Platform</div>
+</header>
+
+<main>
+  <!-- FORM PANEL -->
+  <aside class="form-panel">
+    <div class="section-label">Project Details</div>
+
+    <div class="field-group">
+      <label>Story Pitch</label>
+      <textarea id="story_pitch" placeholder="Brief logline or synopsis of your film idea..."></textarea>
+    </div>
+
+    <!-- FEATURE 6: Main Theme with autocomplete suggestions -->
+    <div class="field-group">
+      <label>Main Theme</label>
+      <div class="autocomplete-wrapper">
+        <input type="text" id="main_theme" placeholder="e.g. Redemption, Identity, Power..." autocomplete="off" oninput="onThemeInput(this)" onkeydown="onThemeKeyDown(event)" onblur="closeThemeList()"/>
+        <div class="autocomplete-list" id="theme-list"></div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <!-- FEATURE 5: Multi-select Genre -->
+      <div class="field-group">
+        <label>Genre</label>
+        <div class="multi-select-wrapper" id="wrapper-genre">
+          <div class="multi-select-display" id="display-genre" tabindex="0" onclick="toggleDropdown('genre')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('genre')">
+            <span class="placeholder">Select genre(s)</span>
+            <span class="multi-select-arrow">▾</span>
+          </div>
+          <div class="multi-select-dropdown" id="dropdown-genre">
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Action')"><span class="check"></span>Action</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Adventure')"><span class="check"></span>Adventure</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Animation')"><span class="check"></span>Animation</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Comedy')"><span class="check"></span>Comedy</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Crime')"><span class="check"></span>Crime</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Documentary')"><span class="check"></span>Documentary</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Drama')"><span class="check"></span>Drama</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Fantasy')"><span class="check"></span>Fantasy</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Horror')"><span class="check"></span>Horror</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Mystery')"><span class="check"></span>Mystery</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Romance')"><span class="check"></span>Romance</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Science Fiction')"><span class="check"></span>Science Fiction</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Thriller')"><span class="check"></span>Thriller</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'War')"><span class="check"></span>War</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Western')"><span class="check"></span>Western</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEATURE 5: Multi-select Tone -->
+      <div class="field-group">
+        <label>Tone</label>
+        <div class="multi-select-wrapper" id="wrapper-tone">
+          <div class="multi-select-display" id="display-tone" tabindex="0" onclick="toggleDropdown('tone')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('tone')">
+            <span class="placeholder">Select tone(s)</span>
+            <span class="multi-select-arrow">▾</span>
+          </div>
+          <div class="multi-select-dropdown" id="dropdown-tone">
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Uplifting')"><span class="check"></span>Uplifting</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Dark')"><span class="check"></span>Dark</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Humorous')"><span class="check"></span>Humorous</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Dramatic')"><span class="check"></span>Dramatic</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Adventurous')"><span class="check"></span>Adventurous</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Romantic')"><span class="check"></span>Romantic</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Suspenseful')"><span class="check"></span>Suspenseful</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Satirical')"><span class="check"></span>Satirical</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Experimental')"><span class="check"></span>Experimental</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Surreal')"><span class="check"></span>Surreal</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Nostalgic')"><span class="check"></span>Nostalgic</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Gritty')"><span class="check"></span>Gritty</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <!-- FEATURE 5: Multi-select Target Audience -->
+      <div class="field-group">
+        <label>Target Audience</label>
+        <div class="multi-select-wrapper" id="wrapper-target_audience">
+          <div class="multi-select-display" id="display-target_audience" tabindex="0" onclick="toggleDropdown('target_audience')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('target_audience')">
+            <span class="placeholder">Select audience(s)</span>
+            <span class="multi-select-arrow">▾</span>
+          </div>
+          <div class="multi-select-dropdown" id="dropdown-target_audience">
+            <div class="multi-select-option" onclick="toggleOption('target_audience',this,'General Audience')"><span class="check"></span>General Audience</div>
+            <div class="multi-select-option" onclick="toggleOption('target_audience',this,'Young Adults (18-25)')"><span class="check"></span>Young Adults (18-25)</div>
+            <div class="multi-select-option" onclick="toggleOption('target_audience',this,'Adults (26-45)')"><span class="check"></span>Adults (26-45)</div>
+            <div class="multi-select-option" onclick="toggleOption('target_audience',this,'Families')"><span class="check"></span>Families</div>
+            <div class="multi-select-option" onclick="toggleOption('target_audience',this,'Teens')"><span class="check"></span>Teens</div>
+            <div class="multi-select-option" onclick="toggleOption('target_audience',this,'Niche/Cult')"><span class="check"></span>Niche/Cult</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEATURE 5: Multi-select Time Period -->
+      <div class="field-group">
+        <label>Time Period</label>
+        <div class="multi-select-wrapper" id="wrapper-time_period">
+          <div class="multi-select-display" id="display-time_period" tabindex="0" onclick="toggleDropdown('time_period')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('time_period')">
+            <span class="placeholder">Select period(s)</span>
+            <span class="multi-select-arrow">▾</span>
+          </div>
+          <div class="multi-select-dropdown" id="dropdown-time_period">
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'Contemporary')"><span class="check"></span>Contemporary</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'1970s')"><span class="check"></span>1970s</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'1980s')"><span class="check"></span>1980s</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'1990s')"><span class="check"></span>1990s</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'2000s')"><span class="check"></span>2000s</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'2010s')"><span class="check"></span>2010s</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'2020s')"><span class="check"></span>2020s</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'Period Piece')"><span class="check"></span>Period Piece</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'Future/Sci-Fi')"><span class="check"></span>Future/Sci-Fi</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label" style="margin-top:1rem;">Production</div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label>Budget Range</label>
+        <select id="budget_range">
+          <option value="">Select budget</option>
+          <option>Micro (&lt;$1M)</option>
+          <option>Low ($1M-$10M)</option>
+          <option>Mid ($10M-$50M)</option>
+          <option>High ($50M-$150M)</option>
+          <option>Blockbuster ($150M+)</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Production Schedule</label>
+        <select id="production_schedule">
+          <option value="">Select schedule</option>
+          <option>Under 3 months</option>
+          <option>3–6 months</option>
+          <option>6–12 months</option>
+          <option>12–24 months</option>
+          <option>24+ months</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- FEATURE 5: Multi-select Casting Category -->
+    <div class="field-group">
+      <label>Casting Category</label>
+      <div class="multi-select-wrapper" id="wrapper-casting_category">
+        <div class="multi-select-display" id="display-casting_category" tabindex="0" onclick="toggleDropdown('casting_category')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('casting_category')">
+          <span class="placeholder">Select casting</span>
+          <span class="multi-select-arrow">▾</span>
+        </div>
+        <div class="multi-select-dropdown" id="dropdown-casting_category">
+          <div class="multi-select-option" onclick="toggleOption('casting_category',this,'A-list Stars')"><span class="check"></span>A-list Stars</div>
+          <div class="multi-select-option" onclick="toggleOption('casting_category',this,'Established Mid-Tier')"><span class="check"></span>Established Mid-Tier</div>
+          <div class="multi-select-option" onclick="toggleOption('casting_category',this,'Up-and-coming')"><span class="check"></span>Up-and-coming</div>
+          <div class="multi-select-option" onclick="toggleOption('casting_category',this,'Unknown/Non-professional')"><span class="check"></span>Unknown/Non-professional</div>
+          <div class="multi-select-option" onclick="toggleOption('casting_category',this,'Mixed (Stars + Newcomers)')"><span class="check"></span>Mixed (Stars + Newcomers)</div>
+          <div class="multi-select-option" onclick="toggleOption('casting_category',this,'Animated/Voice Cast')"><span class="check"></span>Animated/Voice Cast</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label" style="margin-top:1rem;">Goals & Intent</div>
+
+    <!-- Distribution Goal multi-select -->
+    <div class="field-group">
+      <label>Distribution Goal</label>
+      <div class="multi-select-wrapper" id="wrapper-distribution_goal">
+        <div class="multi-select-display" id="display-distribution_goal" tabindex="0" onclick="toggleDropdown('distribution_goal')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('distribution_goal')">
+          <span class="placeholder">How do you want to release it?</span>
+          <span class="multi-select-arrow">▾</span>
+        </div>
+        <div class="multi-select-dropdown" id="dropdown-distribution_goal">
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Major Theatrical Release')"><span class="check"></span>Major Theatrical Release</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Indie / Film Festival')"><span class="check"></span>Indie / Film Festival</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Streaming Platform')"><span class="check"></span>Streaming Platform</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Online / Social Media')"><span class="check"></span>Online / Social Media</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'School / Academic Project')"><span class="check"></span>School / Academic Project</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Community / Local Screening')"><span class="check"></span>Community / Local Screening</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Niche Audience / Cult')"><span class="check"></span>Niche Audience / Cult</div>
+          <div class="multi-select-option" onclick="toggleOption('distribution_goal',this,'Not Decided Yet')"><span class="check"></span>Not Decided Yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Film Purpose multi-select -->
+    <div class="field-group">
+      <label>Film Purpose</label>
+      <div class="multi-select-wrapper" id="wrapper-film_purpose">
+        <div class="multi-select-display" id="display-film_purpose" tabindex="0" onclick="toggleDropdown('film_purpose')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('film_purpose')">
+          <span class="placeholder">What is this film for?</span>
+          <span class="multi-select-arrow">▾</span>
+        </div>
+        <div class="multi-select-dropdown" id="dropdown-film_purpose">
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Generate Profit')"><span class="check"></span>Generate Profit</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Pure Entertainment')"><span class="check"></span>Pure Entertainment</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Send a Social Message')"><span class="check"></span>Send a Social Message</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Artistic Expression')"><span class="check"></span>Artistic Expression</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Academic / School Requirement')"><span class="check"></span>Academic / School Requirement</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Build a Portfolio')"><span class="check"></span>Build a Portfolio</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Just for Fun')"><span class="check"></span>Just for Fun</div>
+          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Raise Awareness')"><span class="check"></span>Raise Awareness</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="analyze-btn" onclick="analyze()">
+      <div class="btn-text">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/></svg>
+        Analyze Film
+      </div>
+    </button>
+  </aside>
+
+  <!-- RESULTS PANEL -->
+  <section class="results-panel" id="results">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">🎬</div>
+      <h3>Ready to analyze your film</h3>
+      <p>Fill in your project details on the left and click Analyze to get strategic insights, similar films, and AI-powered recommendations.</p>
+    </div>
+  </section>
+</main>
+
+<div class="loading-overlay" id="loading">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Analyzing your film concept...</div>
+</div>
+
+<script>
+// ─── MULTI-SELECT STATE ───────────────────────────────────────────────
+const multiState = {
+  genre: [], tone: [], target_audience: [], time_period: [], casting_category: [],
+  distribution_goal: [], film_purpose: []
+};
+
+function toggleDropdown(field) {
+  const dropdown = document.getElementById('dropdown-' + field);
+  const display = document.getElementById('display-' + field);
+  const isOpen = dropdown.classList.contains('open');
+  // Close all others
+  document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.multi-select-display').forEach(d => d.classList.remove('open'));
+  if (!isOpen) {
+    dropdown.classList.add('open');
+    display.classList.add('open');
+  }
+}
+
+function toggleOption(field, el, value) {
+  const arr = multiState[field];
+  const idx = arr.indexOf(value);
+  if (idx === -1) { arr.push(value); el.classList.add('selected'); el.querySelector('.check').textContent = '✓'; }
+  else { arr.splice(idx, 1); el.classList.remove('selected'); el.querySelector('.check').textContent = ''; }
+  renderTags(field);
+}
+
+function removeTag(field, value) {
+  const arr = multiState[field];
+  const idx = arr.indexOf(value);
+  if (idx !== -1) arr.splice(idx, 1);
+  // Deselect in dropdown
+  document.querySelectorAll(`#dropdown-${field} .multi-select-option`).forEach(opt => {
+    if (opt.textContent.trim().replace('✓','').trim() === value) {
+      opt.classList.remove('selected');
+      opt.querySelector('.check').textContent = '';
+    }
+  });
+  renderTags(field);
+}
+
+function renderTags(field) {
+  const display = document.getElementById('display-' + field);
+  const arr = multiState[field];
+  const arrow = display.querySelector('.multi-select-arrow');
+  // Remove old tags and placeholder
+  [...display.children].forEach(c => { if (!c.classList.contains('multi-select-arrow')) c.remove(); });
+  if (arr.length === 0) {
+    const placeholders = { genre: 'Select genre(s)', tone: 'Select tone(s)', target_audience: 'Select audience(s)', time_period: 'Select period(s)', casting_category: 'Select casting' };
+    const ph = document.createElement('span');
+    ph.className = 'placeholder';
+    ph.textContent = placeholders[field];
+    display.insertBefore(ph, arrow);
+  } else {
+    arr.forEach(v => {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.innerHTML = `${v}<span class="remove" onmousedown="event.preventDefault();removeTag('${field}','${v.replace(/'/g,"\\'")}')">×</span>`;
+      display.insertBefore(tag, arrow);
+    });
+  }
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('.multi-select-wrapper')) {
+    document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+    document.querySelectorAll('.multi-select-display').forEach(d => d.classList.remove('open'));
+  }
+});
+
+// ─── THEME AUTOCOMPLETE ───────────────────────────────────────────────
+const THEMES = [
+  'Redemption','Identity','Power','Freedom','Love','Loss','Survival','Justice',
+  'Corruption','Family','Friendship','Betrayal','War','Peace','Sacrifice','Revenge',
+  'Forgiveness','Hope','Despair','Courage','Fear','Truth','Deception','Loyalty',
+  'Ambition','Greed','Faith','Doubt','Isolation','Connection','Coming of Age',
+  'Class Struggle','Race','Gender','Mortality','Memory','Time','Fate','Free Will',
+  'Obsession','Jealousy','Guilt','Innocence','Violence','Humanity','Nature vs Nurture',
+  'Technology','Progress','Tradition','Revolution','Oppression','Resistance'
+];
+
+let themeActiveIdx = -1;
+
+function onThemeInput(input) {
+  const val = input.value.trim().toLowerCase();
+  const list = document.getElementById('theme-list');
+  themeActiveIdx = -1;
+  if (!val) { list.classList.remove('open'); list.innerHTML = ''; return; }
+  const matches = THEMES.filter(t => t.toLowerCase().includes(val)).slice(0, 7);
+  if (!matches.length) { list.classList.remove('open'); list.innerHTML = ''; return; }
+  list.innerHTML = matches.map((m, i) => {
+    const hi = m.replace(new RegExp(`(${val})`, 'gi'), '<span>$1</span>');
+    return `<div class="autocomplete-item" onmousedown="event.preventDefault();selectTheme('${m}')" data-idx="${i}">${hi}</div>`;
+  }).join('');
+  list.classList.add('open');
+}
+
+function onThemeKeyDown(e) {
+  const list = document.getElementById('theme-list');
+  const items = list.querySelectorAll('.autocomplete-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); themeActiveIdx = Math.min(themeActiveIdx+1, items.length-1); updateThemeActive(items); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); themeActiveIdx = Math.max(themeActiveIdx-1, -1); updateThemeActive(items); }
+  else if (e.key === 'Enter' && themeActiveIdx >= 0) { e.preventDefault(); selectTheme(items[themeActiveIdx].textContent); }
+  else if (e.key === 'Escape') { closeThemeList(); }
+}
+
+function updateThemeActive(items) {
+  items.forEach((it, i) => it.classList.toggle('active', i === themeActiveIdx));
+}
+
+function selectTheme(val) {
+  document.getElementById('main_theme').value = val;
+  closeThemeList();
+}
+
+function closeThemeList() {
+  setTimeout(() => {
+    const list = document.getElementById('theme-list');
+    list.classList.remove('open');
+  }, 100);
+}
+
+// ─── FINANCIAL + AUDIENCE + CULTURAL SUB-METRICS ────────────────────
+function calcSubMetrics(data, subReasons, subScores) {
+  // Use server-computed scores (fully derived from all inputs) when available
+  const genres   = Array.isArray(data.genre)            ? data.genre            : [data.genre].filter(Boolean);
+  const tones    = Array.isArray(data.tone)             ? data.tone             : [data.tone].filter(Boolean);
+  const audiences= Array.isArray(data.target_audience)  ? data.target_audience  : [data.target_audience].filter(Boolean);
+
+  // Financial score (numeric only — reason comes from Groq)
+  const financialScoreMap = {
+    'Micro (<$1M)':55,'Low ($1M-$10M)':62,'Mid ($10M-$50M)':72,
+    'High ($50M-$150M)':80,'Blockbuster ($150M+)':88
+  };
+  const financialDescMap = {
+    'Micro (<$1M)':'Low risk, limited reach','Low ($1M-$10M)':'Indie potential, niche returns',
+    'Mid ($10M-$50M)':'Solid mid-tier commercial range','High ($50M-$150M)':'Strong commercial infrastructure',
+    'Blockbuster ($150M+)':'High investment, high return potential'
+  };
+  const financial = {
+    score: (subScores && subScores.financial != null) ? subScores.financial : (financialScoreMap[data.budget_range] || 50),
+    desc:  financialDescMap[data.budget_range]  || 'Budget not specified',
+    reason: (subReasons && subReasons.financial) || ''
+  };
+
+  // Audience score (numeric only — reason comes from Groq)
+  const audienceScores = {
+    'General Audience':85,'Families':82,'Young Adults (18-25)':78,
+    'Teens':72,'Adults (26-45)':74,'Niche/Cult':58
+  };
+  const avgAudience = (subScores && subScores.audience != null)
+    ? subScores.audience
+    : (audiences.length ? Math.round(audiences.reduce((s,a) => s+(audienceScores[a]||65),0)/audiences.length) : 65);
+  const audienceDesc = audiences.length > 1
+    ? `Across ${audiences.length} audience segments`
+    : (audiences[0] || 'Not specified');
+
+  // Cultural score (numeric only — reason comes from Groq)
+  const culturalGenres = ['Drama','Science Fiction','War','Crime','Documentary','Fantasy'];
+  const culturalTones  = ['Dark','Experimental','Surreal','Satirical','Gritty','Dramatic'];
+  let cultural = (subScores && subScores.cultural != null) ? subScores.cultural : 50;
+  if (!subScores || subScores.cultural == null) {
+    genres.forEach(g => { if (culturalGenres.includes(g)) cultural += 8; });
+    tones.forEach(t  => { if (culturalTones.includes(t))  cultural += 6; });
+    if (data.main_theme) cultural += 10;
+    cultural = Math.min(95, cultural);
+  }
+  const culturalDesc = cultural>=75 ? 'Strong thematic resonance expected'
+                      : cultural>=60 ? 'Moderate cultural footprint'
+                      : 'Limited cultural longevity';
+
+  return {
+    financial,
+    audience: { score: avgAudience, desc: audienceDesc, reason: (subReasons && subReasons.audience) || '' },
+    cultural: { score: cultural,    desc: culturalDesc,  reason: (subReasons && subReasons.cultural) || '' }
+  };
+}
+
+function scoreColor(s) {
+  return s >= 70 ? 'var(--success)' : s >= 50 ? 'var(--accent)' : 'var(--danger)';
+}
+
+// ─── ANALYZE ────────────────────────────────────────────────────────
+async function analyze() {
+  const data = {
+    story_pitch: document.getElementById('story_pitch').value,
+    main_theme: document.getElementById('main_theme').value,
+    budget_range: document.getElementById('budget_range').value,
+    production_schedule: document.getElementById('production_schedule').value,
+    genre: [...multiState.genre],
+    tone: [...multiState.tone],
+    target_audience: [...multiState.target_audience],
+    time_period: [...multiState.time_period],
+    casting_category: [...multiState.casting_category],
+    distribution_goal: [...multiState.distribution_goal],
+    film_purpose: [...multiState.film_purpose],
+  };
+
+  if (!data.genre.length) { alert('Please select at least one genre to continue.'); return; }
+
+  document.getElementById('loading').classList.add('active');
+  document.querySelector('.analyze-btn').disabled = true;
+
+  try {
+    const resp = await fetch('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    renderResults(result, data);
+  } catch (e) {
+    alert('Something went wrong. Check your API keys and try again.');
+  } finally {
+    document.getElementById('loading').classList.remove('active');
+    document.querySelector('.analyze-btn').disabled = false;
+  }
+}
+
+// ─── RENDER ─────────────────────────────────────────────────────────
+function renderResults(result, formData) {
+  const { similar_films, success_rate, ai_analysis, sub_reasons, sub_scores, method } = result;
+  const panel = document.getElementById('results');
+  const rateColor = success_rate >= 70 ? 'high' : success_rate >= 45 ? 'mid' : 'low';
+  const rateColorVar = rateColor === 'high' ? 'var(--success)' : rateColor === 'mid' ? 'var(--accent)' : 'var(--danger)';
+
+  const sub = calcSubMetrics(formData, sub_reasons, sub_scores);
+
+  // FEATURE 1+2+3: film cards with plot, reason, and clickable link
+  const filmsHTML = similar_films.map((f, i) => `
+    <a class="film-card stagger-${Math.min(i+1,4)}" href="https://www.themoviedb.org/movie/${f.tmdb_id || ''}" target="_blank" rel="noopener" title="View on TMDB">
+      ${f.poster
+        ? `<img class="film-poster" src="${f.poster}" alt="${f.title}" loading="lazy"/>`
+        : `<div class="film-poster-placeholder">🎞️</div>`}
+      <div class="film-info">
+        <div class="film-title">${f.title}</div>
+        <div class="film-meta">
+          <span>${f.release_date}</span>
+          <span class="film-score">★ ${f.vote_average}</span>
+        </div>
+        ${f.plot ? `<div class="film-plot">${f.plot}</div>` : ''}
+        ${f.reason ? `<div class="film-reason">↳ ${f.reason}</div>` : ''}
+        <div class="film-link-hint">🔗 View on TMDB</div>
+      </div>
+    </a>
+  `).join('');
+
+  const strengthsHTML = (ai_analysis.strengths || []).map(s =>
+    `<span class="pill strength">✓ ${s}</span>`).join('');
+  const risksHTML = (ai_analysis.risks || []).map(r =>
+    `<span class="pill risk">⚠ ${r}</span>`).join('');
+  const suggestionsHTML = (ai_analysis.strategic_suggestions || []).map(s => `
+    <div class="suggestion-item">
+      <div class="suggestion-title">${s.title}</div>
+      <div class="suggestion-detail">${s.detail}</div>
+    </div>`).join('');
+  const routesHTML = (ai_analysis.alternative_routes || []).map(r => `
+    <div class="route-item">
+      <div class="route-title">${r.route}</div>
+      <div class="route-rationale">${r.rationale}</div>
+    </div>`).join('');
+
+  const genreLabel = Array.isArray(formData.genre) ? formData.genre.join(', ') : formData.genre;
+  const toneLabel = Array.isArray(formData.tone) ? formData.tone.join(', ') : formData.tone;
+  const audLabel = Array.isArray(formData.target_audience) ? formData.target_audience.join(', ') : formData.target_audience;
+
+  panel.innerHTML = `
+    <!-- FEATURE 4: Enhanced success block with sub-metrics -->
+    <div class="success-block stagger-1">
+      <div class="success-top">
+        <div>
+          <div class="success-label">Predicted Commercial Success Rate</div>
+          <div class="success-title">${genreLabel || 'Film'} · ${toneLabel || ''} · ${audLabel || ''}</div>
+          <div class="ml-badge">${method === 'xgboost' ? '🤖 XGBoost ML Prediction' : '📊 Heuristic Estimate — run train_model.ipynb to enable ML'}</div>
+          <div class="meter-track">
+            <div class="meter-fill ${rateColor}" id="meter-fill"></div>
+          </div>
+          <div class="meter-labels"><span>Low</span><span>Medium</span><span>High</span></div>
+        </div>
+        <div>
+          <div class="rate-number" style="color:${rateColorVar}">${success_rate}<span>%</span></div>
+        </div>
+      </div>
+      ${sub_reasons && sub_reasons.commercial_success ? `
+      <div class="commercial-reason">${sub_reasons.commercial_success}</div>
+      ` : ''}
+      <div class="sub-metrics">
+        <div class="sub-metric">
+          <div class="sub-metric-label">📈 Predicted Financial Success</div>
+          <div class="sub-metric-bar-track">
+            <div class="sub-metric-bar" id="bar-financial" style="background:${scoreColor(sub.financial.score)}"></div>
+          </div>
+          <div class="sub-metric-value" style="color:${scoreColor(sub.financial.score)}">${sub.financial.score}%</div>
+          <div class="sub-metric-desc">${sub.financial.desc}</div>
+          <div class="sub-metric-reason">${sub.financial.reason}</div>
+        </div>
+        <div class="sub-metric">
+          <div class="sub-metric-label">👥 Predicted Audience Reception</div>
+          <div class="sub-metric-bar-track">
+            <div class="sub-metric-bar" id="bar-audience" style="background:${scoreColor(sub.audience.score)}"></div>
+          </div>
+          <div class="sub-metric-value" style="color:${scoreColor(sub.audience.score)}">${sub.audience.score}%</div>
+          <div class="sub-metric-desc">${sub.audience.desc}</div>
+          <div class="sub-metric-reason">${sub.audience.reason}</div>
+        </div>
+        <div class="sub-metric">
+          <div class="sub-metric-label">🌍 Long-term Cultural Impact</div>
+          <div class="sub-metric-bar-track">
+            <div class="sub-metric-bar" id="bar-cultural" style="background:${scoreColor(sub.cultural.score)}"></div>
+          </div>
+          <div class="sub-metric-value" style="color:${scoreColor(sub.cultural.score)}">${sub.cultural.score}%</div>
+          <div class="sub-metric-desc">${sub.cultural.desc}</div>
+          <div class="sub-metric-reason">${sub.cultural.reason}</div>
+        </div>
+      </div>
+    </div>
+
+    ${similar_films.length ? `
+    <div class="block-title stagger-2">Similar Films in Database</div>
+    <div class="films-grid stagger-2">${filmsHTML}</div>
+    ` : ''}
+
+    <div class="block-title stagger-3">AI Strategic Analysis</div>
+    <div class="analysis-block stagger-3">
+      <div class="assessment-text">${ai_analysis.overall_assessment || ''}</div>
+      ${strengthsHTML || risksHTML ? `
+      <div class="section-label" style="margin-bottom:0.8rem;">Strengths & Risks</div>
+      <div class="pills-row">${strengthsHTML}${risksHTML}</div>` : ''}
+      ${suggestionsHTML ? `
+      <div class="section-label" style="margin:1.2rem 0 0.8rem;">Strategic Suggestions</div>
+      <div class="suggestions-list">${suggestionsHTML}</div>` : ''}
+      ${routesHTML ? `
+      <div class="section-label" style="margin:1.2rem 0 0.8rem;">Alternative Routes</div>
+      <div class="routes-list">${routesHTML}</div>` : ''}
+      ${ai_analysis.market_insight ? `
+      <div class="market-insight">${ai_analysis.market_insight}</div>` : ''}
+    </div>
+  `;
+
+  setTimeout(() => {
+    const fill = document.getElementById('meter-fill');
+    if (fill) fill.style.width = success_rate + '%';
+    const bf = document.getElementById('bar-financial');
+    if (bf) bf.style.width = sub.financial.score + '%';
+    const ba = document.getElementById('bar-audience');
+    if (ba) ba.style.width = sub.audience.score + '%';
+    const bc = document.getElementById('bar-cultural');
+    if (bc) bc.style.width = sub.cultural.score + '%';
+  }, 100);
+
+  panel.scrollTop = 0;
+}
+</script>
+</body>
+</html>
