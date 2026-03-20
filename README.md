@@ -1,13 +1,3 @@
-# CineScope — Film Strategic Analytics
-
-An AI-powered film pre-production analytics tool for film students and creators.
-
-## Features
-- Input your film's genre, tone, theme, budget, audience, and more
-- Finds similar films via TMDB API
-- Calculates a predicted commercial success rate
-- AI-powered strategic suggestions and alternative routes via Google Gemini
-
 ## Setup
 
 ### 1. Install dependencies
@@ -32,14 +22,3 @@ python app.py
 ```
 
 Then open http://localhost:5000 in your browser.
-
-## Project Structure
-```
-/
-├── app.py              # Flask backend
-├── templates/
-│   └── index.html      # Frontend UI
-├── requirements.txt
-├── .env.example
-└── README.md
-```
