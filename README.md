@@ -11,6 +11,7 @@ Create a `.env` file in the project root (copy from `.env.example`):
 TMDB_API_KEY=your_tmdb_api_key_here
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
+(PM niyo ko or message lang kayo sa discord for the api key, i dont wanna put them here kasi para satin lang)
 
 Get your keys:
 - TMDB: https://www.themoviedb.org/settings/api
