@@ -33,12 +33,28 @@ def load_models():
 
 load_models()
 
+# ── Load Filipino film CSV ─────────────────────────────────────────────
+
 # ── Genre mapping ──────────────────────────────────────────────────────
 GENRE_MAP = {
     "Action":28,"Adventure":12,"Animation":16,"Comedy":35,
     "Crime":80,"Documentary":99,"Drama":18,"Fantasy":14,
     "Horror":27,"Mystery":9648,"Romance":10749,"Science Fiction":878,
-    "Thriller":53,"War":10752,"Western":37
+    "Thriller":53,"War":10752,"Western":37,
+    # Extended genres — mapped to closest TMDB equivalents
+    "Political Drama":18,       # Drama
+    "Slice of Life":18,         # Drama
+    "Psychological":9648,       # Mystery
+    "Philosophical":18,         # Drama
+    "Social Commentary":99,     # Documentary
+    "Arthouse":18,              # Drama
+}
+
+# Scoring classification for extended genres
+GENRE_COMMERCIAL_CLASS = {
+    "Political Drama": "medium", "Slice of Life": "medium",
+    "Psychological": "medium",   "Philosophical": "low",
+    "Social Commentary": "low",  "Arthouse": "low",
 }
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -99,60 +115,104 @@ def compute_sub_metrics(data):
     pitch       = data.get("story_pitch","")
     theme       = data.get("main_theme","")
 
-    # Financial
-    fin = {"Micro (<$1M)":30,"Low ($1M-$10M)":45,"Mid ($10M-$50M)":60,
-           "High ($50M-$150M)":72,"Blockbuster ($150M+)":82}.get(budget, 40)
-    high_commercial   = {"Action","Comedy","Animation","Adventure","Science Fiction"}
-    medium_commercial = {"Drama","Romance","Thriller","Fantasy"}
-    low_commercial    = {"Documentary","War","Western","Horror","Crime","Mystery"}
+    # Financial — smart budget-genre fit scoring
+    # Key insight: ROI depends on whether the budget matches what the film actually needs.
+    # A low-budget intimate drama can have HIGHER financial success than an
+    # over-budgeted action film, because its break-even is lower.
+
+    # Genre "natural budget zone" — what budget these genres normally need to succeed
+    low_budget_genres  = {"Drama","Romance","Documentary","Horror","Mystery",
+                          "Thriller","Slice of Life","Psychological","Philosophical",
+                          "Social Commentary","Arthouse","Political Drama"}
+    mid_budget_genres  = {"Comedy","Crime","Fantasy","Adventure","Science Fiction","War"}
+    high_budget_genres = {"Action","Animation","Adventure","Science Fiction"}
+
+    # Budget tiers as base score
+    budget_base = {"Micro (<$1M)":40,"Low ($1M-$10M)":52,"Mid ($10M-$50M)":62,
+                   "High ($50M-$150M)":70,"Blockbuster ($150M+)":78}.get(budget, 45)
+
+    # Fit bonus/penalty: does the budget match what this genre needs?
+    fit_bonus = 0
     for g in genres:
-        if g in high_commercial:     fin += 5
-        elif g in medium_commercial: fin += 2
-        elif g in low_commercial:    fin -= 3
-    if "A-list Stars" in casting:              fin += 8
-    elif "Established Mid-Tier" in casting:    fin += 4
-    elif "Unknown/Non-professional" in casting: fin -= 5
+        if g in low_budget_genres:
+            # Low-budget genres: Micro/Low budgets are efficient → bonus, high budget → waste
+            if budget in ("Micro (<$1M)", "Low ($1M-$10M)"):   fit_bonus += 12
+            elif budget == "Mid ($10M-$50M)":                    fit_bonus += 5
+            elif budget in ("High ($50M-$150M)", "Blockbuster ($150M+)"): fit_bonus -= 8
+        elif g in mid_budget_genres:
+            if budget == "Mid ($10M-$50M)":                      fit_bonus += 8
+            elif budget == "Low ($1M-$10M)":                     fit_bonus += 3
+            elif budget == "Blockbuster ($150M+)":               fit_bonus -= 5
+        elif g in high_budget_genres:
+            if budget == "Blockbuster ($150M+)":                 fit_bonus += 10
+            elif budget == "High ($50M-$150M)":                  fit_bonus += 8
+            elif budget in ("Micro (<$1M)", "Low ($1M-$10M)"):  fit_bonus -= 10
+
+    fin = min(95, budget_base + fit_bonus)
+
+    # Casting modifier
+    if "A-list Stars" in casting:               fin += 8
+    elif "Established Mid-Tier" in casting:     fin += 4
+    elif "Unknown/Non-professional" in casting:
+        # Unknown cast hurts big-budget films more than indie films
+        if budget in ("Micro (<$1M)", "Low ($1M-$10M)"): fin -= 2  # less penalty for indie
+        else:                                              fin -= 7
+
+    # Distribution modifier
     if "Major Theatrical Release" in distribution:    fin += 6
-    elif "Streaming Platform" in distribution:        fin += 3
+    elif "Streaming Platform" in distribution:        fin += 4
     elif "School / Academic Project" in distribution: fin = min(fin, 45)
     elif "Online / Social Media" in distribution:     fin -= 2
-    if "Generate Profit" in purposes:                 fin += 5
+
+    # Purpose modifier
     if "Just for Fun" in purposes:                    fin = min(fin, 50)
     if "Academic / School Requirement" in purposes:   fin = min(fin, 45)
-    if schedule == "Under 3 months":                  fin -= 8
-    elif schedule == "24+ months":                    fin -= 3
+
+    # Schedule risk
+    if schedule == "Under 3 months":  fin -= 8
+    elif schedule == "24+ months":    fin -= 3
+
     mismatch_penalty, mismatch_flags = detect_mismatch(genres, tones, audiences, theme, pitch)
     fin -= mismatch_penalty // 2
-    fin = max(10, min(95, fin))
+    if budget: fin = max(10, min(95, fin))
+    else: fin = -1  # no budget = undecided
 
     # Audience
     audience_base = {"General Audience":75,"Young Adults (18-25)":70,"Adults (26-45)":68,
                      "Families":72,"Teens":65,"Niche/Cult":52}
-    aud = round(sum(audience_base.get(a,60) for a in audiences) / max(len(audiences),1)) if audiences else 55
-    family_safe_tones = {"Uplifting","Humorous","Adventurous","Romantic","Nostalgic"}
-    adult_tones_set   = {"Dark","Gritty","Experimental","Surreal","Satirical","Suspenseful"}
+    # If no audience selected, return -1 sentinel (undecided)
+    if not audiences:
+        aud = -1
+    else:
+        aud = round(sum(audience_base.get(a,60) for a in audiences) / max(len(audiences),1))
+    family_safe_tones = {"Uplifting","Humorous","Adventurous","Romantic","Nostalgic","Whimsical","Intimate","Poetic"}
+    adult_tones_set   = {"Dark","Gritty","Experimental","Surreal","Satirical","Suspenseful","Ambiguous","Unsettling","Cynical","Tense"}
     family_auds = {"Families","Teens"}
     adult_auds  = {"Adults (26-45)","Young Adults (18-25)"}
     has_family_aud = any(a in family_auds for a in audiences)
     has_adult_aud  = any(a in adult_auds  for a in audiences)
     has_adult_tone = any(t in adult_tones_set for t in tones)
     has_safe_tone  = any(t in family_safe_tones for t in tones)
-    if has_family_aud and has_adult_tone:  aud -= 22
-    if has_adult_aud  and has_adult_tone:  aud += 8
-    if has_family_aud and has_safe_tone:   aud += 8
-    if has_adult_aud  and has_safe_tone:   aud += 3
-    dark_genres  = {"Horror","Thriller","Crime","War"}
-    light_genres = {"Comedy","Animation","Adventure","Romance","Fantasy"}
-    if has_family_aud and any(g in dark_genres  for g in genres): aud -= 15
-    if has_family_aud and any(g in light_genres for g in genres): aud += 8
-    if has_adult_aud  and any(g in dark_genres  for g in genres): aud += 5
+    # Define these outside the block so they're always available for pitch_has_explicit check
     explicit_kws = ["sex","sexual","explicit","gore","graphic violence","blood","drugs"]
     pitch_lower  = (pitch + " " + theme).lower()
-    if has_family_aud and any(w in pitch_lower for w in explicit_kws): aud -= 20
-    if "School / Academic Project" in distribution: aud = max(aud, 60)
-    if "Niche Audience / Cult"     in distribution: aud += 5
-    if "Online / Social Media"     in distribution: aud += 4
-    aud = max(10, min(95, aud))
+
+    if audiences:
+        if has_family_aud and has_adult_tone:  aud -= 22
+        if has_adult_aud  and has_adult_tone:  aud += 8
+        if has_family_aud and has_safe_tone:   aud += 8
+        if has_adult_aud  and has_safe_tone:   aud += 3
+        dark_genres  = {"Horror","Thriller","Crime","War"}
+        light_genres = {"Comedy","Animation","Adventure","Romance","Fantasy"}
+        if has_family_aud and any(g in dark_genres  for g in genres): aud -= 15
+        if has_family_aud and any(g in light_genres for g in genres): aud += 8
+        if has_adult_aud  and any(g in dark_genres  for g in genres): aud += 5
+        if has_family_aud and any(w in pitch_lower for w in explicit_kws): aud -= 20
+        if "School / Academic Project" in distribution: aud = max(aud, 60)
+        if "Niche Audience / Cult"     in distribution: aud += 5
+        if "Online / Social Media"     in distribution: aud += 4
+    if audiences: aud = max(10, min(95, aud))
+    else: aud = -1  # no audience = undecided
 
     # Cultural — measures LASTING resonance, not just thematic intensity
     # High scores require: depth of theme + artistic intent + distribution that reaches cultural discourse
@@ -167,7 +227,7 @@ def compute_sub_metrics(data):
         elif g in low_cultural:    cult += 1  # these rarely have long cultural legs alone
     # Tone — gritty/dark alone does NOT equal cultural impact
     # It needs to be paired with artistic intent
-    culturally_rich_tones = {"Dramatic","Experimental","Surreal","Satirical","Nostalgic"}
+    culturally_rich_tones = {"Dramatic","Experimental","Surreal","Satirical","Nostalgic","Thought-provoking","Melancholic","Poetic","Ambiguous","Realistic","Cynical"}
     shock_tones = {"Dark","Gritty"}  # intense but not inherently culturally lasting
     for t in tones:
         if t in culturally_rich_tones: cult += 6
@@ -280,8 +340,8 @@ def adjust_success_rate(base_score, sub_factors, data):
     elif "Unknown/Non-professional" in casting:  score -= 4
 
     # ── Tone alignment ────────────────────────────────────────────────
-    safe_tones  = {"Uplifting","Humorous","Adventurous","Romantic"}
-    risky_tones = {"Experimental","Surreal"}
+    safe_tones  = {"Uplifting","Humorous","Adventurous","Romantic","Whimsical","Poetic"}
+    risky_tones = {"Experimental","Surreal","Ambiguous","Cynical"}
     safe_count  = sum(1 for t in tones if t in safe_tones)
     score += safe_count * 2
     score -= sum(3 for t in tones if t in risky_tones)
@@ -295,32 +355,65 @@ def adjust_success_rate(base_score, sub_factors, data):
 
 # ── Feature vector builder ─────────────────────────────────────────────
 def build_feature_vector(form_data):
+    """
+    Builds a feature vector that ALWAYS matches the trained model shape.
+    Uses feature_cols from the pkl to determine exact columns needed.
+    Any column the model expects that we don't compute defaults to 0.
+    """
     genres = as_list(form_data.get("genre"))
     times  = as_list(form_data.get("time_period"))
     budget = form_data.get("budget_range","")
     row    = {}
+
+    # Genre one-hot (covers all genres in GENRE_MAP)
     for gname in GENRE_MAP:
         row[f"genre_{gname.replace(' ','_')}"] = 1 if gname in genres else 0
+
+    # Numeric features
     budget_popularity = {"Micro (<$1M)":5,"Low ($1M-$10M)":15,"Mid ($10M-$50M)":40,
                          "High ($50M-$150M)":80,"Blockbuster ($150M+)":150}
     row["popularity"]     = budget_popularity.get(budget, 20)
     row["vote_count_log"] = np.log1p(500)
+
     decade_map = {"1970s":1970,"1980s":1980,"1990s":1990,"2000s":2000,
-                  "2010s":2010,"2020s":2020,"Contemporary":2020,"Future/Sci-Fi":2025}
+                  "2010s":2010,"2020s":2020,"Contemporary":2020,"Future/Sci-Fi":2025,"Post-Apocalyptic":2025,"Alternate World / Universe":2020}
     row["release_decade"] = decade_map.get(times[0], 2020) if times else 2020
-    row["is_english"]     = 1
-    row["is_adult"]       = 0
+
+    # Language/type flags — include ALL possible flags; feature_cols will select the right ones
+    row["is_english"]  = 1
+    row["is_filipino"] = 0   # user concept is not a Filipino film
+    row["is_adult"]    = 0
+
+    # Use feature_cols from pkl to build exact vector — model gets exactly what it was trained on
     if feature_cols:
         vec = [row.get(c, 0) for c in feature_cols]
     else:
         vec = list(row.values())
-    return np.array(vec).reshape(1, -1)
+    return np.array(vec, dtype=float).reshape(1, -1)
 
 # ── XGBoost prediction ─────────────────────────────────────────────────
 def predict_success_xgb(form_data):
-    vec = build_feature_vector(form_data)
-    raw = float(xgb_model.predict(vec)[0])
-    return max(20, min(96, round(raw)))
+    try:
+        vec = build_feature_vector(form_data)
+        raw = float(xgb_model.predict(vec)[0])
+        return max(20, min(96, round(raw)))
+    except ValueError as e:
+        if "Feature shape mismatch" in str(e):
+            # Model expects different number of features than we built.
+            # This happens when feature_cols.pkl has more columns than XGBoost was trained on.
+            # Safe fix: drop extra columns by trimming to what xgb_model expects.
+            print(f"[XGB] Shape mismatch — attempting trim fix: {e}")
+            try:
+                n_expected = xgb_model.get_booster().num_features()
+                vec = build_feature_vector(form_data)
+                vec_trimmed = vec[:, :n_expected]
+                raw = float(xgb_model.predict(vec_trimmed)[0])
+                print(f"[XGB] Trim fix worked — used {n_expected} features")
+                return max(20, min(96, round(raw)))
+            except Exception as e2:
+                print(f"[XGB] Trim fix also failed: {e2} — using heuristic")
+                return predict_success_fallback(form_data)
+        raise
 
 # ── Fallback heuristic ─────────────────────────────────────────────────
 def predict_success_fallback(data):
@@ -418,7 +511,24 @@ CINEMATIC_NOUNS = {
     "revenge","redemption","survival","identity","corruption","betrayal",
     "restaurant","hotel","theater","circus","carnival","festival","parade",
     "student","journalist","soldier","rebel","outlaw","survivor","orphan",
-    "divorce","pregnancy","adoption","grief","addiction","immigrant","refugee"
+    "divorce","pregnancy","adoption","grief","addiction","immigrant","refugee","apocalyptic","apocalypse","alternate","parallel","dystopia","dystopian",
+    # Parenting / family
+    "foster","parenting","custody","orphan","guardian","caregiver","stepfather",
+    "stepmother","stepchild","siblings","children","teenager","toddler","infant",
+    # Romance / relationships
+    "couple","romance","affair","breakup","heartbreak","dating","marriage",
+    "jealousy","infidelity","soulmate","reunion","proposal","divorce",
+    # Crime / thriller specific
+    "kidnapping","hostage","trafficking","blackmail","conspiracy","assassin",
+    "fugitive","bounty","gangster","cartel","undercover","informant","heist",
+    # Workplace / professional
+    "startup","corporation","politics","election","campaign","president",
+    "senator","lawyer","courtroom","trial","verdict","jury","prosecutor",
+    # Journey / adventure
+    "expedition","voyage","quest","pilgrimage","escape","exile","wanderer",
+    # Loss / healing
+    "widower","widow","mourning","terminal","illness","cancer","disability",
+    "recovery","rehabilitation","therapy","depression","anxiety",
 }
 
 STOP_WORDS = {
@@ -438,7 +548,12 @@ STOP_WORDS = {
     "funny","light","hearted","pure","bloody","normal","highly","random",
     "different","good","great","really","quite","dark","gritty","dramatic",
     "uplifting","humorous","satirical","heartwarming","emotional","intense",
-    "twist","ends","turns","become","becomes","became","between","among"
+    "twist","ends","turns","become","becomes","became","between","among",
+    # Extra filler words that pollute TMDB search
+    "young","couple","people","person","story","tales","based","true","real",
+    "foreign","country","staying","breaking","discover","discovers","finds",
+    "eventually","together","apart","decide","decided","after","their","film",
+    "about","where","when","which","there","here","then","than","them","they"
 }
 
 def _extract_anchor_words(pitch, theme, genres):
@@ -548,6 +663,11 @@ def get_similar_films_hybrid(form_data):
         source     = cand["source"]
         query_rank = cand.get("query_rank", 99)
 
+        # Skip adult/sexually explicit content
+        if _is_adult_content(r):
+            print(f"[Filter] Skipped adult content: {r.get('title','?')}")
+            continue
+
         knn_sim   = _knn_score_single(r, form_data)
         sem_score = _keyword_overlap(pitch_words, overview)
 
@@ -556,8 +676,11 @@ def get_similar_films_hybrid(form_data):
         elif source == "search":
             sem_score = min(1.0, sem_score + (0.35 if query_rank == 1 else 0.20))
         # Discover-only with zero overlap: skip
-        elif source == "discover" and sem_score < 0.05:
-            continue
+        elif source == "discover":
+            # Surface search: keep genre-based discover results even with low keyword overlap
+            # Deep search: be strict — discover films must have some thematic connection
+            if strict_semantic and sem_score < 0.05:
+                continue
 
         vote_avg      = r.get("vote_average", 0)
         quality_bonus = 5 if vote_avg >= 7.5 else (2 if vote_avg >= 6.0 else 0)
@@ -663,8 +786,44 @@ def fetch_industry_trends(genres, tone, theme):
     return f"No live trend data available for {genre_str}."
 
 # ── Groq analysis ──────────────────────────────────────────────────────
+def _call_groq(prompt, max_tokens=1800, fast=False):
+    """Single Groq call with retry logic. Returns parsed dict or raises.
+    fast=True uses llama-3.1-8b-instant (lower token cost, good for film reasons).
+    fast=False uses llama-3.3-70b-versatile (better quality, for main analysis).
+    """
+    url     = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"}
+    model   = "llama-3.1-8b-instant" if fast else "llama-3.3-70b-versatile"
+    payload = {"model": model,
+               "messages":[{"role":"user","content":prompt}],
+               "temperature":0.7,"max_tokens":max_tokens}
+    last_err = ""
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            raw  = resp.json()
+            if resp.status_code != 200:
+                raise Exception(raw.get("error",{}).get("message", str(raw)))
+            text = raw["choices"][0]["message"]["content"].strip()
+            text = re.sub(r"^```(?:json)?\s*","",text)
+            text = re.sub(r"\s*```$","",text).strip()
+            return json.loads(text)
+        except Exception as e:
+            last_err = str(e)
+            print(f"[Groq] Attempt {attempt+1}/3 failed: {e}")
+            if attempt < 2:
+                import time; time.sleep(1.5)
+    raise Exception(f"All Groq retries failed: {last_err}")
+
+
 def get_ai_analysis(film_data, similar_films, success_rate, ml_ready,
                     industry_trends, sub_factors):
+    """
+    Two separate Groq calls:
+    1. Main analysis (overall, scores, strengths, risks, suggestions)
+    2. Film reasons (one per film card)
+    Splitting prevents JSON truncation from token overflow.
+    """
     genres    = as_list(film_data.get("genre"))
     tones     = as_list(film_data.get("tone"))
     audiences = as_list(film_data.get("target_audience"))
@@ -676,135 +835,904 @@ def get_ai_analysis(film_data, similar_films, success_rate, ml_ready,
     aud_score  = sub_factors["audience"]["score"]
     cul_score  = sub_factors["cultural"]["score"]
     has_family = any(a in {"Families","Teens"} for a in audiences)
-    extra_flag = ["Explicit content in pitch/theme with family audience"] \
+    extra_flag = ["Explicit content with family audience"] \
         if sub_factors["audience"]["pitch_has_explicit"] and has_family else []
     mismatches = sub_factors["financial"].get("mismatch_flags",[]) + extra_flag
 
     ml_context = (
-        f"XGBoost predicted {success_rate}% from: genre={', '.join(genres)}, "
-        f"budget={film_data.get('budget_range','')}, "
-        f"decade={film_data.get('time_period','')}, language=English. "
-        f"Trained on ~3,000 TMDB films."
-        if ml_ready else f"Heuristic score: {success_rate}%."
+        f"XGBoost: {success_rate}% from genre={', '.join(genres)}, "
+        f"budget={film_data.get('budget_range','')}, decade={film_data.get('time_period','')}."
+        if ml_ready else f"Heuristic: {success_rate}%."
     )
 
-    film_lines = []
-    for i, f in enumerate(similar_films[:6]):
-        film_lines.append(
-            f"FILM {i+1}: \"{f['title']}\" ({f['release_date']}) — "
-            f"similarity {f.get('similarity','?')}% — "
-            f"Plot: {f['overview'][:180]}..."
-        )
+    market_label  = film_data.get("_market_label","International market")
+    budget_label  = film_data.get("budget_range","this budget")
+    genre_label   = normalize(film_data.get("genre"))
+    tone_label    = normalize(film_data.get("tone"))
+    audience_label= normalize(film_data.get("target_audience"))
+    purpose_label = normalize(film_data.get("film_purpose",[]),"unspecified")
+    pitch_short   = pitch[:80]
 
     mismatch_block = ""
     if mismatches:
-        mismatch_block = "DETECTED ISSUES:\n" + "\n".join(f"- {m}" for m in mismatches) + "\n\n"
+        mismatch_block = "ISSUES:\n" + "\n".join(f"- {m}" for m in mismatches[:3]) + "\n"
 
-    budget_label   = film_data.get("budget_range","this budget")
-    genre_label    = normalize(film_data.get("genre"))
-    tone_label     = normalize(film_data.get("tone"))
-    audience_label = normalize(film_data.get("target_audience"))
-    purpose_label  = normalize(film_data.get("film_purpose",[]),"unspecified")
-    pitch_short    = pitch[:60]
-
-    # Build varied film reason instructions — each film gets a DIFFERENT opening directive
-    # so Groq cannot fall back to a single template
-    reason_openers = [
-        "Open with the specific plot mechanic in {t} that directly parallels the pitch's core conflict. Second sentence: the one concrete lesson this film offers the creator about execution.",
-        "Name the character decision in {t} that echoes what the pitch's protagonist faces. Second sentence: what went right or wrong in {t} that the creator should replicate or avoid.",
-        "Describe the scene or narrative device in {t} that is closest to the pitch's setting or tone. Second sentence: how the creator can apply that specific technique to their concept.",
-        "Identify the genre tension in {t} — what it was trying to balance — and connect that directly to the pitch's challenge. Second sentence: what the creator can steal from its approach.",
-        "Start with what {t} got right that most films in this genre fail at, and explain why it matters for the pitch. Second sentence: the specific production choice the creator should study.",
-        "Point out the moment in {t} where the story diverges from the pitch's concept, and explain why that difference is instructive. Second sentence: what the creator should do differently.",
-    ]
-    film_reason_lines = []
-    for _i, _film in enumerate(similar_films[:6]):
-        _t = _film["title"]
-        opener = reason_openers[_i % len(reason_openers)].replace("{t}", _t)
-        film_reason_lines.append(
-            "    " + '"' + f"FILM {_i+1}|{_t}" + '"' + ": " + '"' + opener + '",\n'
+    # ── CALL 1: Main analysis (no film reasons) ───────────────────────
+    # Build scope-appropriate film reference block so Groq only cites films
+    # that match the user's chosen market scope
+    market_scope_val = film_data.get("market_scope", "international")
+    scope_film_lines = []
+    for f in similar_films[:6]:
+        is_ph = f.get("is_filipino", False)
+        if market_scope_val == "filipino" and not is_ph:
+            continue  # skip international films when Filipino scope
+        if market_scope_val == "international" and is_ph:
+            continue  # skip Filipino films when international scope
+        scope_film_lines.append(
+            f"- \"{f['title']}\" ({f['release_date']}) "
+            f"★{f['vote_average']} — {(f.get('overview') or '')[:80]}"
         )
-    film_reason_block = "".join(film_reason_lines)
+    if not scope_film_lines:
+        # Fallback: use all films if filtering left nothing
+        scope_film_lines = [
+            f"- \"{f['title']}\" ({f['release_date']}) ★{f['vote_average']}"
+            for f in similar_films[:4]
+        ]
 
-    overall_hint   = (f"2-3 sentences referencing the pitch ({pitch_short}...) "
-                      f"and purpose ({purpose_label}). Lead with mismatches if any.")
-    financial_hint = (f"2 sentences on ROI for {budget_label} in {genre_label} right now.")
-    audience_hint  = (f"2 sentences addressing the {aud_score}% score. "
-                      f"If mismatch, explain why {audience_label} is misaligned.")
-    cultural_hint  = (f"2 sentences on why {genre_label} + {tone_label} + "
-                      f"theme of {theme} does or does not have cultural legs.")
-
-    prompt = (
-        "You are a blunt, experienced film industry consultant. "
-        "Write analysis that sounds like a human expert, not an AI.\n\n"
-        "STRICT RULES:\n"
-        "- NEVER say: it is worth noting, the film themes are closely tied, resonate with, align with.\n"
-        "- Each film_reason must START with a specific narrative or character element from THAT film.\n"
-        "- Vary sentence structures across film reasons.\n"
-        "- Call out mismatches directly.\n"
-        "- financial/audience/cultural reasons must each cover a DIFFERENT aspect.\n\n"
-        f"PITCH: {pitch}\n"
-        f"Theme: {theme} | Genre: {genre_label} | Tone: {tone_label}\n"
-        f"Audience: {audience_label} | Budget: {budget_label}\n"
-        f"Distribution: {normalize(film_data.get('distribution_goal',[]),'Not specified')}\n"
-        f"Purpose: {purpose_label}\n\n"
-        f"{mismatch_block}"
-        f"ML SCORES — Overall: {success_rate}% | Financial: {fin_score}% | "
-        f"Audience: {aud_score}% | Cultural: {cul_score}%\n"
-        f"{ml_context}\n\n"
-        "MATCHED FILMS:\n" + "\n".join(film_lines) + "\n\n"
-        "LIVE TRENDS:\n" + f"{industry_trends}\n\n"
-        "OUTPUT: valid JSON only.\n{\n"
-        f'  "overall_assessment": "{overall_hint}",\n'
-        '  "commercial_success_reason": "3 sentences: ML factors, then purpose/distribution reframe, then market trend evidence.",\n'
-        '  "strengths": ["specific to THIS pitch"],\n'
-        '  "risks": ["specific actual risk"],\n'
-        '  "strategic_suggestions": [\n'
-        '    {"title":"action","detail":"concrete step"},\n'
-        '    {"title":"action","detail":"concrete step"},\n'
-        '    {"title":"action","detail":"concrete step"}\n'
-        '  ],\n'
-        '  "alternative_routes": [{"route":"alt","rationale":"why for THIS film"}],\n'
-        '  "market_insight": "one specific current pattern as evidence",\n'
-        f'  "financial_reason": "{financial_hint}",\n'
-        f'  "audience_reason": "{audience_hint}",\n'
-        f'  "cultural_reason": "{cultural_hint}",\n'
-        '  "film_reasons": {\n'
-        + film_reason_block
-        + "  }\n}\n"
+    scope_films_block = (
+        f"BENCHMARK FILMS ({market_label} only — cite no others):\n"
+        + "\n".join(scope_film_lines) + "\n"
     )
 
-    url     = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"}
-    payload = {"model":"llama-3.3-70b-versatile",
-               "messages":[{"role":"user","content":prompt}],
-               "temperature":0.85,"max_tokens":2500}
+    scope_instruction = f"SCOPE: {market_label} ONLY. Only cite films from the list below. No other markets.\n"
+
+    analysis_prompt = (
+        "Film consultant. Blunt. No filler phrases. No: steal/copy/borrow — use: adapt/study/build on.\n"
+        + scope_instruction
+        + f"PITCH: {pitch_short}\n"
+        f"Theme: {theme} | Genre: {genre_label} | Tone: {tone_label}\n"
+        f"Secondary Genre Hints: {normalize(film_data.get('secondary_genre',[]),'none')}\n"
+        f"Audience: {audience_label} | Budget: {budget_label} | Purpose: {purpose_label}\n"
+        f"Market: {market_label}\n"
+        f"{mismatch_block}"
+        f"SCORES: Overall={success_rate}% Financial={fin_score}% Audience={aud_score}% Cultural={cul_score}%\n"
+        f"{ml_context}\n"
+        + scope_films_block + "\n"
+        "OUTPUT valid JSON:\n"
+        '{"overall_assessment":"2-3 sentences on viability in stated market",'
+        '"commercial_success_reason":"3 sentences: ML factors, market reframe, one film from list as benchmark",'
+        '"strengths":["pitch-specific strength"],'
+        '"risks":["specific actual risk"],'
+        '"strategic_suggestions":[{"title":"action","detail":"concrete step"},{"title":"action","detail":"step"},{"title":"action","detail":"step"}],'
+        '"alternative_routes":[{"route":"alt","rationale":"why"}],'
+        '"market_insight":"one sentence, cite a film from the list above only",'
+        f'"financial_reason":"2 sentences on ROI for {budget_label} in {genre_label}",'
+        f'"audience_reason":"2 sentences on {aud_score}% for {audience_label}",'
+        f'"cultural_reason":"2 sentences on cultural legs for {genre_label}+{theme}"'
+        "}"
+    )
+
+    ANALYSIS_DEFAULTS = {
+        "overall_assessment":"","commercial_success_reason":"",
+        "strengths":[],"risks":[],"strategic_suggestions":[],
+        "alternative_routes":[],"market_insight":"",
+        "financial_reason":"","audience_reason":"","cultural_reason":""
+    }
+
     try:
-        resp = requests.post(url, headers=headers, json=payload)
-        data = resp.json()
-        if resp.status_code != 200:
-            raise Exception(data.get("error",{}).get("message",str(data)))
-        text = data["choices"][0]["message"]["content"].strip()
-        text = re.sub(r"^```(?:json)?\s*","",text)
-        text = re.sub(r"\s*```$","",text).strip()
-        print("[Groq] Success")
-        result = json.loads(text)
-        raw_reasons = result.pop("film_reasons",{})
-        clean = {}
-        for k,v in raw_reasons.items():
-            title = k.split("|")[-1].strip() if "|" in k else k.strip()
-            clean[title] = v
-        result["film_reasons"] = clean
+        analysis = _call_groq(analysis_prompt, max_tokens=900)
+        for k,v in ANALYSIS_DEFAULTS.items():
+            if k not in analysis or analysis[k] is None:
+                analysis[k] = v
+        print("[Groq] Analysis call success")
+    except Exception as e:
+        print(f"[Groq] Analysis call failed: {e}")
+        analysis = dict(ANALYSIS_DEFAULTS)
+        analysis["overall_assessment"] = "AI analysis temporarily unavailable. Please try again."
+
+    # ── CALL 2: Film reasons (separate call, smaller prompt) ──────────
+    surface_openers = [
+        "Name the plot mechanic in {t} that parallels the pitch's conflict. What can the creator learn from its execution?",
+        "Name the character decision in {t} that echoes the protagonist's challenge. What can the creator adapt from it?",
+        "Describe the scene in {t} closest to the pitch's tone. How can the creator draw inspiration from that approach?",
+        "Identify what {t} balanced well that most genre films fail at. How can the creator be informed by that choice?",
+        "Point to where {t} diverges from the pitch concept. What can the creator do differently as a result?",
+        "Explain what {t} got right technically. What specific approach can the creator study and build on?",
+    ]
+    deep_openers = [
+        "Identify the emotional undercurrent in {t} beneath the plot. How can the creator draw inspiration from its subtext?",
+        "Name the scene in {t} where the tone resonates with the pitch. How can the creator adapt that tonal approach?",
+        "Describe how {t} handled a moral tension similar to the pitch. What can the creator learn from its resolution?",
+        "Point to the character arc in {t} that parallels the protagonist's internal journey. What writing technique can the creator study?",
+        "Explain what {t} was really about under its genre surface. How can the creator build similar thematic depth?",
+        "Identify the cultural theme {t} taps into. How can the creator be informed by that approach from a different angle?",
+    ]
+
+    def _build_reasons_prompt(films_batch, openers_list, label, offset=0):
+        lines_r = []
+        instructions = []
+        output_keys  = []
+        for i, f in enumerate(films_batch):
+            t  = f["title"]
+            ov = (f.get("overview") or "")[:60]
+            lines_r.append(f'F{i+1}: "{t}" — {ov}')
+            opener = openers_list[(i + offset) % len(openers_list)].replace("{t}", t)
+            instructions.append(f'"F{i+1}|{t}": "{opener}"')
+            output_keys.append('"F' + str(i+1) + '|' + t + '": "two sentences"')
+        return (
+            f"Film consultant. 2 sentences per film. No steal/copy/borrow — use: adapt, study, build on.\n"
+            f"Start each reason with a specific element from THAT film.\n"
+            f"Pitch: {pitch_short} | Genre: {genre_label}\n\n"
+            "Films:\n" + "\n".join(lines_r) + "\n\n"
+            "Write:\n" + "\n".join(instructions) + "\n\n"
+            'OUTPUT JSON: {"film_reasons":{\n'
+            + "\n".join(output_keys)
+            + "\n}}"
+        )
+
+    def _fetch_reasons(films_batch, openers_list, label, offset=0):
+        if not films_batch:
+            return {}
+        out = {}
+        for chunk_start in range(0, len(films_batch), 3):
+            chunk = films_batch[chunk_start:chunk_start + 3]
+            prompt = _build_reasons_prompt(chunk, openers_list, label, offset + chunk_start)
+            try:
+                result = _call_groq(prompt, max_tokens=450, fast=True)
+                raw = result.get("film_reasons", {})
+                for k, v in raw.items():
+                    title = k.split("|")[-1].strip() if "|" in k else k.strip()
+                    out[title] = v
+                print(f"[Groq] {label} chunk {chunk_start//3+1}: {len(raw)} returned")
+            except Exception as e:
+                print(f"[Groq] {label} chunk {chunk_start//3+1} failed: {e}")
+                for f in chunk:
+                    out[f["title"]] = ""
+        return out
+
+    # Film reasons handled by get_all_film_reasons() in analyze() — covers all 4 groups
+    analysis["film_reasons"] = {}
+    return analysis
+
+
+def get_story_advice(film_data, similar_films=None, success_rate=None, sub_factors=None):
+    """
+    Story consultant Groq call — honest creative feedback on the pitch.
+    Uses ML scores and similar films as evidence to ground the advice in data.
+    """
+    pitch   = film_data.get("story_pitch", "")
+    theme   = film_data.get("main_theme", "")
+    genre   = normalize(film_data.get("genre"))
+    tone    = normalize(film_data.get("tone"))
+    budget  = film_data.get("budget_range", "")
+
+    if not pitch or len(pitch.strip()) < 30:
+        return None
+
+    # Build ML context block — grounded facts the advisor can reference
+    ml_block = ""
+    if success_rate is not None and sub_factors:
+        fin = sub_factors["financial"]["score"]
+        aud = sub_factors["audience"]["score"]
+        cul = sub_factors["cultural"]["score"]
+        ml_block = (
+            f"ML PREDICTION DATA (XGBoost + business logic):\n"
+            f"Overall commercial success: {success_rate}% | "
+            f"Financial: {fin}% | Audience: {aud}% | Cultural: {cul}%\n"
+            f"Budget: {budget} | Genre: {genre}\n"
+            f"Use these numbers to ground your advice — e.g. if financial is low despite "
+            f"a high budget, that signals a budget-concept mismatch the story advisor should flag.\n\n"
+        )
+
+    # Build similar films block — what KNN found closest to this concept
+    films_block = ""
+    if similar_films:
+        top_films = similar_films[:6]
+        lines = []
+        for f in top_films:
+            title_s = f["title"]
+            date_s  = f["release_date"]
+            vote_s  = f["vote_average"]
+            ov_s    = (f.get("overview") or "")[:100]
+            lines.append(f"- \"{title_s}\" ({date_s}) \u2605{vote_s} \u2014 {ov_s}")
+        films_block = (
+            "SIMILAR FILMS (KNN + TMDB search matched these as closest to the pitch):\n"
+            + "\n".join(lines) + "\n"
+            "Reference these films when giving story advice — e.g. if Your Name appears, "
+            "the advisor can note what that film did with similar material and what this pitch "
+            "does differently or better.\n\n"
+        )
+
+    prompt = (
+        "You are a script development consultant — the kind who reads thousands of pitches "
+        "and gives honest, constructive notes backed by data. You are NOT a hype machine.\n\n"
+        "RULES:\n"
+        "- Be specific to THIS pitch. Never give generic advice.\n"
+        "- Do NOT say: it is worth noting, this story has potential, compelling narrative.\n"
+        "- Do NOT use: steal, copy, borrow, mirror, replicate. "
+        "Use: draw inspiration from, study, adapt, build on, take cues from.\n"
+        "- If there are plot holes or logic issues, name them directly.\n"
+        "- Reference the ML scores and similar films in your advice — they are evidence, use them.\n"
+        "- Tone: honest friend who is also a professional. Direct but not cruel.\n\n"
+        f"PITCH:\n{pitch}\n\n"
+        f"Theme: {theme} | Genre: {genre} | Tone: {tone}\n"
+        f"Secondary genre hints: {normalize(film_data.get('secondary_genre',[]),'none')}\n\n"
+        + ml_block
+        + films_block +
+        "OUTPUT valid JSON only:\n"
+        '{"honest_take":"2-3 direct sentences on movie-worthiness, cite ML score",'
+        '"what_works":["specific element that works and exactly why"],'
+        '"what_needs_work":["specific problem, named directly"],'
+        '"thematic_focus":"ONE anchor theme as a question or truth",'
+        '"comparable_films":["Film Title — specific similarity in one sentence"],'
+        '"story_suggestions":[{"title":"suggestion","detail":"pitch-specific advice"},'
+        '{"title":"suggestion","detail":"advice"},{"title":"suggestion","detail":"advice"}],'
+        '"verdict":"one punchy sentence on where this pitch stands"}\n'
+    )
+    try:
+        result = _call_groq(prompt, max_tokens=900)
+        defaults = {
+            "honest_take": "", "what_works": [], "what_needs_work": [],
+            "thematic_focus": "", "comparable_films": [],
+            "story_suggestions": [], "verdict": ""
+        }
+        for k, v in defaults.items():
+            if k not in result or result[k] is None:
+                result[k] = v
+        print("[Groq] Story advice call success")
         return result
     except Exception as e:
-        print(f"[Groq] Error: {e}")
-        return {"overall_assessment":f"AI analysis unavailable: {str(e)}",
-                "commercial_success_reason":"","strengths":[],"risks":[],
-                "strategic_suggestions":[],"alternative_routes":[],"market_insight":"",
-                "financial_reason":"","audience_reason":"","cultural_reason":"",
-                "film_reasons":{}}
+        print(f"[Groq] Story advice call failed: {e}")
+        return None
+
+def adjust_score_for_market(base_score, sub_factors, data, market_scope):
+    """
+    Applies market-specific scoring on top of the base adjustment.
+    Filipino market weights local cultural resonance differently:
+    - Language matters: Filipino/Tagalog content gets local audience bonus
+    - Genre popularity differs: local drama/romance/horror more bankable locally
+    - Budget ceiling: PH market rarely supports blockbuster-level returns locally
+    - Mixed: blended weighted average of both scoring systems
+    """
+    if market_scope == "international":
+        return adjust_success_rate(base_score, sub_factors, data)
+
+    genres    = as_list(data.get("genre"))
+    purposes  = as_list(data.get("film_purpose", []))
+    budget    = data.get("budget_range", "")
+    audiences = as_list(data.get("target_audience"))
+    tones     = as_list(data.get("tone"))
+
+    if market_scope == "filipino":
+        score = base_score
+
+        # Filipino market genre weights (different from Hollywood)
+        ph_strong = {"Drama", "Romance", "Horror", "Comedy", "Thriller"}
+        ph_medium = {"Action", "Fantasy", "Crime", "Mystery"}
+        ph_weak   = {"Science Fiction", "Animation", "Western", "War", "Documentary"}
+        for g in genres:
+            if g in ph_strong:  score += 7
+            elif g in ph_medium: score += 3
+            elif g in ph_weak:   score -= 2
+
+        # Budget ceiling in PH market — blockbuster budgets don't recoup locally
+        budget_ph = {
+            "Micro (<$1M)":     5,   # indie Pinoy film sweet spot
+            "Low ($1M-$10M)":   8,   # mainstream PH commercial
+            "Mid ($10M-$50M)":  4,   # high for PH, needs regional play
+            "High ($50M-$150M)":-3,  # PH box office can't recoup alone
+            "Blockbuster ($150M+)":-10  # impossible to recoup in PH market alone
+        }
+        score += budget_ph.get(budget, 0)
+
+        # Tone alignment with Filipino audience preferences
+        ph_safe_tones = {"Uplifting", "Romantic", "Humorous", "Dramatic", "Nostalgic"}
+        for t in tones:
+            if t in ph_safe_tones: score += 3
+
+        # Film purpose — social message films resonate strongly locally
+        if "Send a Social Message" in purposes: score += 8
+        if "Raise Awareness"       in purposes: score += 6
+        if "Artistic Expression"   in purposes: score += 5
+        if "Just for Fun"          in purposes: score += 3
+
+        # Audience mismatch still applies
+        mismatch_penalty = sub_factors["audience"]["mismatch_penalty"]
+        score -= mismatch_penalty * 0.5
+
+        return max(15, min(96, round(score)))
+
+    if market_scope == "mixed":
+        # Blend: 50% international score + 50% Filipino score
+        intl_score = adjust_success_rate(base_score, sub_factors, data)
+        ph_score   = adjust_score_for_market(base_score, sub_factors, data, "filipino")
+        return max(15, min(96, round((intl_score + ph_score) / 2)))
+
+    return adjust_success_rate(base_score, sub_factors, data)
+
+
+# ── Filipino film search ───────────────────────────────────────────────
+def get_filipino_films_hybrid(form_data):
+    """
+    Searches for Filipino similar films using:
+    1. Curated CSV (local DB for films TMDB misses)
+    2. TMDB with origin_country=PH filter
+    Both are scored by keyword overlap with the pitch.
+    """
+    pitch     = form_data.get("story_pitch", "")
+    theme     = form_data.get("main_theme", "")
+    genres    = as_list(form_data.get("genre"))
+    genre_ids = [GENRE_MAP[g] for g in genres if g in GENRE_MAP]
+
+    pitch_words = [w for w in re.sub(r"[^a-z0-9 ]", " ", (pitch + " " + theme).lower()).split()
+                   if len(w) > 3 and w not in STOP_WORDS]
+
+    candidates = {}
+
+    
+    # Pass 2: TMDB with PH origin country filter
+    try:
+        params = {
+            "api_key":            TMDB_API_KEY,
+            "with_origin_country": "PH",
+            "sort_by":            "vote_average.desc",
+            "vote_count.gte":     20,
+            "language":           "en-US",
+            "page":               1
+        }
+        if genre_ids:
+            params["with_genres"] = "|".join(str(g) for g in genre_ids)
+        resp = requests.get(f"{TMDB_BASE}/discover/movie", params=params, timeout=6)
+        for r in resp.json().get("results", [])[:15]:
+            tid = r.get("id")
+            if tid and tid not in candidates:
+                sem = _keyword_overlap(pitch_words, r.get("overview", ""))
+                candidates[tid] = {
+                    "source":     "tmdb_ph",
+                    "result":     r,
+                    "sem_score":  sem,
+                    "query_rank": 1,
+                }
+        print(f"[Filipino] TMDB PH pass: {len(candidates)} total candidates")
+    except Exception as e:
+        print(f"[Filipino] TMDB PH failed: {e}")
+
+    if not candidates:
+        return []
+
+    # Score and rank
+    scored = []
+    for cand in candidates.values():
+        r         = cand["result"]
+        sem_score = cand["sem_score"]
+        knn_sim   = _knn_score_single(r, form_data)
+        vote_avg  = r.get("vote_average", 0)
+        quality   = 5 if vote_avg >= 7.5 else (2 if vote_avg >= 6.0 else 0)
+        combined  = round(0.65 * (sem_score * 100) + 0.35 * knn_sim + quality, 2)
+
+        overview  = r.get("overview", "")
+        sentences = re.split(r"(?<=[.!?])\s+", overview.strip())
+        plot      = sentences[0] if sentences else overview[:120]
+
+        scored.append({
+            "tmdb_id":      r.get("id"),
+            "title":        r.get("title", ""),
+            "plot":         plot,
+            "overview":     overview,
+            "release_date": (r.get("release_date", "") or "")[:4],
+            "vote_average": round(float(vote_avg), 1),
+            "poster":       f"https://image.tmdb.org/t/p/w300{r['poster_path']}" if r.get("poster_path") else None,
+            "similarity":   round(combined, 1),
+            "is_filipino":  True,
+            "reason":       ""
+        })
+
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    seen, final = set(), []
+    for film in scored:
+        if film["title"] not in seen:
+            seen.add(film["title"])
+            final.append(film)
+        if len(final) >= 6: break
+
+    print(f"[Filipino] Final: {[f['title'] for f in final]}")
+    return final
+
 
 # ── Routes ─────────────────────────────────────────────────────────────
+def _surface_keywords(pitch, theme, genres, tones):
+    """
+    Surface-level: broad premise keywords — character type, setting, main conflict.
+    These produce matches obvious at first glance (heist → heist, romance → romance).
+    """
+    anchors, fillers = _extract_anchor_words(pitch, theme, genres)
+    known_genres_lower = {"comedy","drama","action","horror","thriller","animation",
+                          "romance","fantasy","crime","mystery","documentary",
+                          "adventure","western","war","science fiction"}
+    # Use anchor words only — strongest narrative signals
+    q1_parts = [w for w in anchors[:4] if w not in known_genres_lower]
+    # Add genre as a semantic anchor for surface matching
+    if genres:
+        q1_parts.append(genres[0].lower())
+    return " ".join(q1_parts[:5]) if q1_parts else normalize({"genre": genres}, "film")
+
+
+def _deep_keywords(pitch, theme, genres, tones):
+    """
+    Deep-level: tonal and thematic nuance keywords — emotional subtext, specific scenes,
+    character psychology, moral tension. These produce matches not obvious at first glance.
+    """
+    # Use theme words + tone words + filler pitch words (not cinematic nouns)
+    anchors, fillers = _extract_anchor_words(pitch, theme, genres)
+    theme_words = re.sub(r"[^a-z0-9 ]", " ", theme.lower()).split() if theme else []
+    tone_map = {
+        "Dark": ["grief","loss","despair","tragedy"],
+        "Gritty": ["struggle","harsh","brutal","raw"],
+        "Nostalgic": ["memory","past","longing","childhood"],
+        "Romantic": ["passion","longing","desire","heartbreak"],
+        "Satirical": ["absurd","irony","critique","commentary"],
+        "Surreal": ["dream","reality","illusion","uncanny"],
+        "Thought-provoking": ["question","dilemma","society","meaning"],
+        "Melancholic": ["sorrow","bittersweet","isolation","quiet"],
+        "Psychological": ["mind","sanity","perception","identity"],
+        "Realistic": ["ordinary","everyday","slice","authentic"],
+        "Ambiguous": ["unclear","moral","grey","open-ended"],
+    }
+    tone_words = []
+    for t in tones:
+        tone_words.extend(tone_map.get(t, [])[:2])
+
+    # Combine: theme words + tone words + top fillers
+    deep_parts = (theme_words[:2] + tone_words[:2] + fillers[:2])
+    seen, unique = set(), []
+    for w in deep_parts:
+        if w and w not in seen and len(w) > 3:
+            seen.add(w); unique.append(w)
+    return " ".join(unique[:5]) if unique else theme
+
+
+def get_surface_films(form_data, scope="international"):
+    """
+    Surface-level: matches based on main character type, general storyline, premise.
+    For Filipino scope: ONLY returns Filipino-language (tl/fil) films.
+    For international scope: keyword + text + genre discover.
+    """
+    genres    = as_list(form_data.get("genre"))
+    tones     = as_list(form_data.get("tone"))
+    times     = as_list(form_data.get("time_period"))
+    pitch     = form_data.get("story_pitch", "")
+    theme     = form_data.get("main_theme", "")
+    genre_ids = [GENRE_MAP[g] for g in genres if g in GENRE_MAP]
+
+    decade_map = {
+        "1970s":("1970-01-01","1979-12-31"),"1980s":("1980-01-01","1989-12-31"),
+        "1990s":("1990-01-01","1999-12-31"),"2000s":("2000-01-01","2009-12-31"),
+        "2010s":("2010-01-01","2019-12-31"),"2020s":("2020-01-01","2029-12-31"),
+        "Contemporary":("2015-01-01","2025-12-31"),
+    }
+    date_filter = {}
+    for t in times:
+        if t in decade_map:
+            date_filter["primary_release_date.gte"] = decade_map[t][0]
+            date_filter["primary_release_date.lte"] = decade_map[t][1]
+            break
+
+    candidates = {}
+
+    # ── FILIPINO SCOPE: only search Filipino-language films ───────────
+    if scope == "filipino":
+        # Fetch many candidates across multiple pages and sort strategies
+        # We need extras because adult content filter will remove some
+        for lang_code in ("tl", "fil"):
+            for sort_by in ("popularity.desc", "vote_average.desc", "vote_count.desc"):
+                for page in (1, 2, 3):
+                    try:
+                        params = {
+                            "api_key": TMDB_API_KEY,
+                            "with_original_language": lang_code,
+                            "sort_by": sort_by,
+                            "vote_count.gte": 5,
+                            "language": "en-US",
+                            "page": page,
+                            "without_companies": "149142",  # exclude Vivamax/VMX
+                        }
+                        # Only apply genre filter on first pass — too restrictive otherwise
+                        if genre_ids and sort_by == "popularity.desc" and page == 1:
+                            params["with_genres"] = "|".join(str(g) for g in genre_ids)
+                        params.update(date_filter)
+                        r = requests.get(f"{TMDB_BASE}/discover/movie", params=params, timeout=8)
+                        results = r.json().get("results", [])
+                        for res in results:
+                            rid = res.get("id")
+                            if rid and rid not in candidates:
+                                candidates[rid] = {"source":"discover","query_rank":page,"result":res}
+                        if not results:
+                            break
+                    except Exception as e:
+                        print(f"[Surface-PH] lang={lang_code} sort={sort_by} p{page} failed: {e}")
+
+        print(f"[Surface-filipino] {len(candidates)} candidates before adult filter")
+        ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
+        ph_only = [f for f in ranked if f.get("is_filipino")]
+        print(f"[Surface-filipino] {len(ph_only)} confirmed Filipino films after filter")
+        return ph_only[:6] if ph_only else ranked[:6]
+
+    # ── INTERNATIONAL SCOPE ───────────────────────────────────────────
+    known_genres_lower = {"comedy","drama","action","horror","thriller","animation",
+                          "romance","fantasy","crime","mystery","documentary",
+                          "adventure","western","war","science fiction","political drama",
+                          "slice of life","psychological","philosophical","social commentary","arthouse"}
+    anchors, fillers = _extract_anchor_words(pitch, theme, genres)
+    anchor_words = [w for w in anchors[:3] if w not in known_genres_lower]
+
+    if anchor_words:
+        surface_q_parts = anchor_words + ([genres[0].lower()] if genres else [])
+    else:
+        meaningful_fillers = [w for w in fillers if w not in known_genres_lower and len(w) > 3][:4]
+        surface_q_parts = meaningful_fillers + ([genres[0].lower()] if genres else [])
+    surface_q = " ".join(surface_q_parts[:5])
+    print(f"[Surface-intl] Query: '{surface_q}'")
+
+    # Pass 1: keyword IDs
+    if anchor_words:
+        kw_ids = _lookup_keyword_ids(anchor_words)
+        if kw_ids:
+            try:
+                params = {"api_key":TMDB_API_KEY,
+                          "with_keywords":"|".join(str(v) for v in kw_ids.values()),
+                          "sort_by":"popularity.desc","vote_count.gte":20,
+                          "language":"en-US","page":1}
+                if genre_ids: params["with_genres"] = "|".join(str(g) for g in genre_ids)
+                params.update(date_filter)
+                r = requests.get(f"{TMDB_BASE}/discover/movie", params=params, timeout=6)
+                for res in r.json().get("results",[])[:12]:
+                    if res.get("id") and res["id"] not in candidates:
+                        candidates[res["id"]] = {"source":"keyword","query_rank":0,"result":res}
+            except Exception as e:
+                print(f"[Surface-intl] KW pass failed: {e}")
+
+    # Pass 2: text search
+    clean_q = " ".join(w for w in surface_q.split() if w.lower() not in known_genres_lower)
+    if clean_q.strip():
+        try:
+            params = {"api_key":TMDB_API_KEY,"query":clean_q,"language":"en-US","page":1}
+            r = requests.get(f"{TMDB_BASE}/search/movie", params=params, timeout=6)
+            for res in r.json().get("results",[])[:12]:
+                if res.get("id") and res.get("vote_count",0)>=10 and res["id"] not in candidates:
+                    candidates[res["id"]] = {"source":"search","query_rank":1,"result":res}
+        except Exception as e:
+            print(f"[Surface-intl] Search failed: {e}")
+
+    # Pass 3: genre discover fallback
+    try:
+        params = {"api_key":TMDB_API_KEY,"sort_by":"popularity.desc",
+                  "vote_count.gte":30,"language":"en-US","page":1}
+        if genre_ids: params["with_genres"] = "|".join(str(g) for g in genre_ids)
+        params.update(date_filter)
+        r = requests.get(f"{TMDB_BASE}/discover/movie", params=params, timeout=6)
+        for res in r.json().get("results",[])[:20]:
+            if res.get("id") and res["id"] not in candidates:
+                candidates[res["id"]] = {"source":"discover","query_rank":99,"result":res}
+    except Exception as e:
+        print(f"[Surface-intl] Discover failed: {e}")
+
+    return _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
+
+
+def get_deep_films(form_data, scope="international", exclude_ids=None):
+    """
+    Deep-level: matches based on thematic nuance, emotional subtext, specific scenes.
+    Not obvious at first glance — digs into tonal and psychological similarities.
+    For Filipino scope: only returns Filipino-language films.
+    """
+    genres    = as_list(form_data.get("genre"))
+    tones     = as_list(form_data.get("tone"))
+    times     = as_list(form_data.get("time_period"))
+    pitch     = form_data.get("story_pitch", "")
+    theme     = form_data.get("main_theme", "")
+    genre_ids = [GENRE_MAP[g] for g in genres if g in GENRE_MAP]
+    exclude_ids = set(exclude_ids or [])
+
+    # ── FILIPINO SCOPE: only search Filipino-language films ───────────
+    if scope == "filipino":
+        candidates = {}
+        for lang_code in ("tl", "fil"):
+            for sort_by in ("vote_average.desc", "popularity.desc", "primary_release_date.desc"):
+                for page in (1, 2, 3):
+                    try:
+                        params = {
+                            "api_key": TMDB_API_KEY,
+                            "with_original_language": lang_code,
+                            "sort_by": sort_by,
+                            "vote_count.gte": 5,
+                            "language": "en-US",
+                            "page": page,
+                            "without_companies": "149142",  # exclude Vivamax/VMX
+                        }
+                        r = requests.get(f"{TMDB_BASE}/discover/movie", params=params, timeout=8)
+                        results = r.json().get("results", [])
+                        for res in results:
+                            rid = res.get("id")
+                            if rid and rid not in candidates and rid not in exclude_ids:
+                                candidates[rid] = {"source":"discover","query_rank":page,"result":res}
+                        if not results:
+                            break
+                    except Exception as e:
+                        print(f"[Deep-PH] lang={lang_code} sort={sort_by} p{page} failed: {e}")
+        print(f"[Deep-filipino] {len(candidates)} candidates before adult filter")
+        ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
+        ph_only = [f for f in ranked if f.get("is_filipino")]
+        print(f"[Deep-filipino] {len(ph_only)} confirmed Filipino films after filter")
+        return ph_only[:6] if ph_only else ranked[:6]
+
+
+    deep_q = _deep_keywords(pitch, theme, genres, tones)
+    print(f"[Deep-{scope}] Query: '{deep_q}'")
+
+    candidates = {}
+    decade_map = {
+        "1970s":("1970-01-01","1979-12-31"),"1980s":("1980-01-01","1989-12-31"),
+        "1990s":("1990-01-01","1999-12-31"),"2000s":("2000-01-01","2009-12-31"),
+        "2010s":("2010-01-01","2019-12-31"),"2020s":("2020-01-01","2029-12-31"),
+        "Contemporary":("2015-01-01","2025-12-31"),
+    }
+    date_filter = {}
+    for t in times:
+        if t in decade_map:
+            date_filter["primary_release_date.gte"] = decade_map[t][0]
+            date_filter["primary_release_date.lte"] = decade_map[t][1]
+            break
+
+    ph_filter = {}
+    if scope == "filipino":
+        ph_filter = {"with_origin_country": "PH"}
+
+    # Deep search: theme + tone keyword search (no genre anchor — intentionally cross-genre)
+    for qi, q in enumerate([deep_q, theme]):
+        if not q or not q.strip(): continue
+        try:
+            params = {"api_key":TMDB_API_KEY,"query":q,"language":"en-US","page":1}
+            params.update(ph_filter)
+            r = requests.get(f"{TMDB_BASE}/search/movie", params=params, timeout=6)
+            for res in r.json().get("results",[])[:12]:
+                rid = res.get("id")
+                if rid and res.get("vote_count",0)>=10 and rid not in candidates and rid not in exclude_ids:
+                    candidates[rid] = {"source":"search","query_rank":qi,"result":res}
+        except Exception as e:
+            print(f"[Deep] Search '{q}' failed: {e}")
+
+    # Also use KNN for tonal-feature similarity — different genres allowed
+    if ML_READY:
+        try:
+            vec        = build_feature_vector(form_data)
+            vec_scaled = scaler.transform(vec)
+            distances, indices = knn_model.kneighbors(vec_scaled, n_neighbors=15)
+            for dist, idx in zip(distances[0], indices[0]):
+                row = film_db.iloc[idx]
+                tid = int(row.get("tmdb_id", 0))
+                if tid and tid not in candidates and tid not in exclude_ids:
+                    # Build a fake TMDB result dict from film_db row
+                    fake = {
+                        "id":           tid,
+                        "title":        str(row.get("title","")),
+                        "overview":     str(row.get("overview","")),
+                        "vote_average": float(row.get("vote_average",0)),
+                        "vote_count":   500,
+                        "release_date": str(row.get("release_date","")),
+                        "poster_path":  row.get("poster_path",""),
+                        "genre_ids":    [],
+                        "original_language": "en",
+                        "popularity":   20,
+                    }
+                    candidates[tid] = {"source":"knn","query_rank":0,"result":fake}
+        except Exception as e:
+            print(f"[Deep] KNN pass failed: {e}")
+
+    # Fallback: cross-genre discover with different sort (by vote_average = quality picks)
+    if len(candidates) < 6:
+        try:
+            params = {"api_key":TMDB_API_KEY,"sort_by":"vote_average.desc",
+                      "vote_count.gte":200,"language":"en-US","page":1}
+            params.update(date_filter)
+            params.update(ph_filter)
+            r = requests.get(f"{TMDB_BASE}/discover/movie", params=params, timeout=6)
+            for res in r.json().get("results",[])[:12]:
+                rid = res.get("id")
+                if rid and rid not in candidates and rid not in exclude_ids:
+                    candidates[rid] = {"source":"discover","query_rank":99,"result":res}
+        except Exception as e:
+            print(f"[Deep] Discover fallback failed: {e}")
+
+    return _score_and_rank(candidates, form_data, pitch, theme, n=6)
+
+
+
+ADULT_KEYWORDS_FILTER = {
+    # English explicit terms
+    "erotic","erotica","explicit","pornographic","pornography","softcore",
+    "adult film","adult movie","sex tape","nude","nudity","explicit sex",
+    "sexual content","18+","xxx","adults only","adult entertainment",
+    "sexually explicit","graphic sex","graphic nudity","sexual violence",
+    "stripper","prostitut","escort","brothel","mistress","concubine","porno","porn",
+    "one night stand","hook up","hookup","seductress","temptress",
+    "lust","lustful","carnal","sensual encounter","sexual affair",
+    "sex scene","sex worker","call girl","gigolo","sugar daddy",
+    # Filipino/Tagalog explicit terms that appear in TMDB titles/overviews
+    "bold","boldstar","bold film","bold movie","bomba","tagalog bold",
+    "pampagana","kalibugan","maselan","malibog","libog",
+    "sabik","mainit","pakikiapid","kaapid","kerida","kabit",
+    "bold star","hubad","telenovela bold","sexy film","sexy movie",
+    "sexy star","star cinema bold","viva bold","regal bold",
+}
+
+# Vivamax/VMX TMDB company ID — known adult content producer
+# Source: https://www.themoviedb.org/company/149142-vivamax
+VIVAMAX_COMPANY_IDS = {149142}
+VIVAMAX_NETWORK_IDS = {4569}
+
+def _is_adult_content(result):
+    """Returns True if this film appears to be adult/sexual content."""
+    if result.get("adult"): return True
+
+    # Block Vivamax/VMX productions by TMDB company ID
+    for co in (result.get("production_companies") or []):
+        if isinstance(co, dict) and co.get("id") in VIVAMAX_COMPANY_IDS:
+            return True
+    for net in (result.get("networks") or []):
+        if isinstance(net, dict) and net.get("id") in VIVAMAX_NETWORK_IDS:
+            return True
+
+    overview = (result.get("overview") or "").lower()
+    title    = (result.get("title") or "").lower()
+    text     = overview + " " + title
+
+    # Check keyword list
+    for kw in ADULT_KEYWORDS_FILTER:
+        if kw in text: return True
+
+    # Filipino adult films often have NO overview and only Romance/Drama genre
+    # with suspiciously low vote counts
+    genre_ids  = result.get("genre_ids") or []
+    vote_count = result.get("vote_count") or 0
+    vote_avg   = result.get("vote_average") or 0
+    no_overview = len(overview.strip()) < 20
+
+    # Only romance or romance+drama with no overview and low votes = likely adult
+    if set(genre_ids) <= {10749, 18} and no_overview and vote_count < 10:
+        return True
+
+    # Fake-rated: very high rating with very few votes and no description
+    if vote_avg >= 9.0 and vote_count < 20 and no_overview:
+        return True
+
+    return False
+
+def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=True):
+    """Shared scoring + ranking logic for both surface and deep film searches."""
+    pitch_words = [w for w in re.sub(r"[^a-z0-9 ]"," ",(pitch+" "+theme).lower()).split()
+                   if len(w) > 3 and w not in STOP_WORDS]
+    scored = []
+    for cand in candidates.values():
+        r          = cand["result"]
+        overview   = r.get("overview","")
+        source     = cand["source"]
+        query_rank = cand.get("query_rank", 99)
+
+        knn_sim   = _knn_score_single(r, form_data)
+        sem_score = _keyword_overlap(pitch_words, overview)
+
+        if source == "keyword": sem_score = min(1.0, sem_score + 0.55)
+        elif source == "knn":   sem_score = min(1.0, sem_score + 0.30)
+        elif source == "search":
+            sem_score = min(1.0, sem_score + (0.35 if query_rank == 0 else 0.20))
+        elif source == "discover" and sem_score < 0.05:
+            continue
+
+        vote_avg      = r.get("vote_average", 0)
+        quality_bonus = 5 if vote_avg >= 7.5 else (2 if vote_avg >= 6.0 else 0)
+        combined      = round(0.65 * (sem_score * 100) + 0.35 * knn_sim + quality_bonus, 2)
+
+        sentences = re.split(r"(?<=[.!?])\s+", overview.strip())
+        plot      = sentences[0] if sentences else overview[:120]
+
+        poster_path = r.get("poster_path","")
+        scored.append({
+            "tmdb_id":      r.get("id"),
+            "title":        r.get("title",""),
+            "plot":         plot,
+            "overview":     overview,
+            "release_date": (r.get("release_date","") or "N/A")[:4],
+            "vote_average": round(float(vote_avg), 1),
+            "poster":       f"https://image.tmdb.org/t/p/w300{poster_path}" if poster_path else None,
+            "similarity":   round(combined, 1),
+            "is_filipino":  r.get("original_language","") in ("tl","fil") or r.get("origin_country","") == "PH" or "PH" in (r.get("production_countries") or []),
+            "reason":       ""
+        })
+
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    seen, final = set(), []
+    for film in scored:
+        if film["title"] not in seen:
+            seen.add(film["title"])
+            final.append(film)
+        if len(final) >= n:
+            break
+    print(f"[Ranked] Top {len(final)}: {[f['title'] for f in final]}")
+    return final
+
+
+
+def get_all_film_reasons(film_data, intl_surface=None, intl_deep=None, ph_surface=None, ph_deep=None):
+    """
+    Generates AI reasons for ALL film groups independently.
+    Each group is processed in 3-film chunks to guarantee complete output.
+    Returns a single dict of {film_title: reason}.
+    """
+    pitch   = film_data.get("story_pitch", "")
+    theme   = film_data.get("main_theme", "")
+    genre   = normalize(film_data.get("genre"))
+    pitch_short = pitch[:80]
+
+    surface_openers = [
+        "Name the plot mechanic in {t} that parallels the pitch. What can the creator learn?",
+        "Name the character decision in {t} that echoes the protagonist. What can be adapted?",
+        "Describe the scene in {t} closest to the pitch's tone. How to draw inspiration?",
+        "What did {t} balance well that others fail at? How can the creator build on this?",
+        "Where does {t} diverge from the pitch? What should the creator do differently?",
+        "What did {t} get right technically? What approach can the creator study?",
+    ]
+    deep_openers = [
+        "What emotional undercurrent in {t} connects to the pitch's theme? How to draw inspiration?",
+        "Which scene in {t} resonates with the pitch's tone? How can the creator adapt it?",
+        "How did {t} handle a moral tension similar to the pitch? What can be learned?",
+        "Which character arc in {t} parallels the protagonist's journey? What to study?",
+        "What is {t} really about beneath its surface? How can the creator build similar depth?",
+        "What cultural theme does {t} tap into that the pitch shares? How to be informed by it?",
+    ]
+
+    def _fetch_group_reasons(films, openers, group_label):
+        if not films:
+            return {}
+        out = {}
+        for chunk_start in range(0, len(films), 3):
+            chunk = films[chunk_start:chunk_start + 3]
+            lines_r, instructions, output_keys = [], [], []
+            for i, f in enumerate(chunk):
+                t  = f["title"]
+                ov = (f.get("overview") or "")[:60]
+                lines_r.append(f"F{i+1}: \"{t}\" — {ov}")
+                opener = openers[(chunk_start + i) % len(openers)].replace("{t}", t)
+                instructions.append(f"\"F{i+1}|{t}\": \"{opener}\"")
+                output_keys.append(f"\"F{i+1}|{t}\": \"two sentences\"")
+            prompt = (
+                f"Film consultant. 2 sentences per film. No steal/copy/borrow — use: adapt, study, build on.\n"
+                f"Start each reason with a specific element from THAT film.\n"
+                f"Pitch: {pitch_short} | Genre: {genre}\n\n"
+                "Films:\n" + "\n".join(lines_r) + "\n\n"
+                "Write:\n" + "\n".join(instructions) + "\n\n"
+                "OUTPUT JSON: {\"film_reasons\":{\n"
+                + "\n".join(output_keys)
+                + "\n}}"
+            )
+            try:
+                result = _call_groq(prompt, max_tokens=450, fast=True)
+                raw = result.get("film_reasons", {})
+                for k, v in raw.items():
+                    title = k.split("|")[-1].strip() if "|" in k else k.strip()
+                    out[title] = v
+                print(f"[Groq] {group_label} chunk {chunk_start//3+1}: {len(raw)} reasons")
+            except Exception as e:
+                print(f"[Groq] {group_label} chunk {chunk_start//3+1} failed: {e}")
+        return out
+
+    all_reasons = {}
+    all_reasons.update(_fetch_group_reasons(intl_surface or [], surface_openers, "intl_surface"))
+    all_reasons.update(_fetch_group_reasons(intl_deep    or [], deep_openers,    "intl_deep"))
+    all_reasons.update(_fetch_group_reasons(ph_surface   or [], surface_openers, "ph_surface"))
+    all_reasons.update(_fetch_group_reasons(ph_deep      or [], deep_openers,    "ph_deep"))
+    print(f"[Groq] Total reasons collected: {len(all_reasons)}")
+    return all_reasons
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -815,31 +1743,98 @@ def ml_status():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    data = request.json
+  try:
+    data         = request.json
+    market_scope = data.get("market_scope", "international")  # international | filipino | mixed
 
-    base_score  = predict_success_xgb(data) if ML_READY else predict_success_fallback(data)
-    method      = "xgboost" if ML_READY else "heuristic"
-    sub_factors = compute_sub_metrics(data)
-    success_rate= adjust_success_rate(base_score, sub_factors, data)
+    # Validate required fields server-side
+    missing = []
+    if not data.get("story_pitch","").strip(): missing.append("story_pitch")
+    if not data.get("main_theme","").strip():  missing.append("main_theme")
+    if not data.get("genre"):                  missing.append("genre")
+    if not data.get("tone"):                   missing.append("tone")
+    if missing:
+        return jsonify({"error": f"Required fields missing: {', '.join(missing)}"}), 400
 
-    # ── Always use hybrid search (works with or without ML) ────────────
-    similar_films = get_similar_films_hybrid(data)
+    base_score   = predict_success_xgb(data) if ML_READY else predict_success_fallback(data)
+    method       = "xgboost" if ML_READY else "heuristic"
+    sub_factors  = compute_sub_metrics(data)
+    success_rate = adjust_score_for_market(base_score, sub_factors, data, market_scope)
+
+    # ── Film search: surface + deep for each market scope ────────────
+    intl_surface, intl_deep, ph_surface, ph_deep = [], [], [], []
+
+    if market_scope in ("international", "mixed"):
+        intl_surface = get_surface_films(data, scope="international")
+        intl_surface_ids = {f["tmdb_id"] for f in intl_surface}
+        intl_deep    = get_deep_films(data, scope="international",
+                                      exclude_ids=intl_surface_ids)
+
+    if market_scope in ("filipino", "mixed"):
+        ph_surface   = get_surface_films(data, scope="filipino")
+        ph_surface_ids = {f["tmdb_id"] for f in ph_surface}
+        ph_deep      = get_deep_films(data, scope="filipino",
+                                      exclude_ids=ph_surface_ids)
+
+    # Backward-compat + Groq gets all films
+    all_films = intl_surface + intl_deep + ph_surface + ph_deep
+    intl_films = intl_surface  # backward compat
+    ph_films   = ph_surface    # backward compat
+
+    # Profit flag — affects financial sub-metric display
+    wants_profit = data.get("wants_profit", True)
 
     genres          = as_list(data.get("genre"))
     industry_trends = fetch_industry_trends(genres, normalize(data.get("tone")), data.get("main_theme",""))
 
-    ai_analysis = get_ai_analysis(data, similar_films, success_rate, ML_READY,
+    # Add market scope context to the prompt
+    market_label = {
+        "international": "International market",
+        "filipino":      "Philippine local market",
+        "mixed":         "Both Philippine local and international markets"
+    }.get(market_scope, "International market")
+    data["_market_label"] = market_label
+
+    # For the main analysis prompt, use a representative sample of films
+    # For reasons, we call get_ai_analysis which handles all groups separately
+    if market_scope == 'mixed':
+        analysis_films = intl_surface[:3] + ph_surface[:3] + intl_deep[:2] + ph_deep[:2]
+    else:
+        analysis_films = (intl_surface + ph_surface)[:6]
+
+    ai_analysis = get_ai_analysis(data, analysis_films, success_rate, ML_READY,
                                    industry_trends, sub_factors)
 
-    film_reasons = ai_analysis.pop("film_reasons",{})
-    for film in similar_films:
-        film["reason"] = film_reasons.get(film["title"],"")
+    # Generate reasons for ALL films across all 4 groups separately
+    # Each group calls Groq independently in 3-film chunks — guarantees complete coverage
+    all_film_reasons = get_all_film_reasons(
+        data,
+        intl_surface=intl_surface,
+        intl_deep=intl_deep,
+        ph_surface=ph_surface,
+        ph_deep=ph_deep
+    )
+
+    ai_analysis.pop("film_reasons", {})  # discard the analysis call's reasons
+
+    def _match_reason(film_title, reasons_dict):
+        if film_title in reasons_dict:
+            return reasons_dict[film_title]
+        film_lower = film_title.lower().strip()
+        for key, reason in reasons_dict.items():
+            key_lower = key.lower().strip()
+            if film_lower.startswith(key_lower[:20]) or key_lower.startswith(film_lower[:20]):
+                return reason
+        return ""
+
+    for film in intl_surface + intl_deep + ph_surface + ph_deep:
+        film["reason"] = _match_reason(film["title"], all_film_reasons)
 
     sub_reasons = {
-        "financial":          ai_analysis.pop("financial_reason",""),
-        "audience":           ai_analysis.pop("audience_reason",""),
-        "cultural":           ai_analysis.pop("cultural_reason",""),
-        "commercial_success": ai_analysis.pop("commercial_success_reason","")
+        "financial":          ai_analysis.pop("financial_reason", ""),
+        "audience":           ai_analysis.pop("audience_reason", ""),
+        "cultural":           ai_analysis.pop("cultural_reason", ""),
+        "commercial_success": ai_analysis.pop("commercial_success_reason", "")
     }
     sub_scores = {
         "financial": sub_factors["financial"]["score"],
@@ -847,14 +1842,34 @@ def analyze():
         "cultural":  sub_factors["cultural"]["score"]
     }
 
+    story_advice = get_story_advice(
+        data,
+        similar_films=analysis_films,
+        success_rate=success_rate,
+        sub_factors=sub_factors
+    )
+
     return jsonify({
-        "similar_films": similar_films,
+        "intl_surface":  intl_surface,
+        "intl_deep":     intl_deep,
+        "ph_surface":    ph_surface,
+        "ph_deep":       ph_deep,
+        "intl_films":    intl_films,
+        "ph_films":      ph_films,
+        "similar_films": intl_films,
+        "market_scope":  market_scope,
+        "wants_profit":  wants_profit,
         "success_rate":  success_rate,
         "sub_scores":    sub_scores,
         "ai_analysis":   ai_analysis,
         "sub_reasons":   sub_reasons,
-        "method":        method
+        "method":        method,
+        "story_advice":  story_advice
     })
+  except Exception as e:
+    import traceback
+    print("[ERROR in /analyze]:", traceback.format_exc())
+    return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)

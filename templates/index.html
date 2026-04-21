@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>FilmVision — Film Strategic Analytics</title>
+<title>FilmVision</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
 <style>
   :root {
@@ -233,6 +233,25 @@
 
   /* THEME AUTOCOMPLETE */
   .autocomplete-wrapper { position: relative; }
+  .theme-tag-box {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+    min-height: 42px;
+    cursor: text;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .theme-tag-box:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232,196,106,0.08);
+  }
+  #theme-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .autocomplete-list {
     display: none;
     position: absolute;
@@ -354,6 +373,132 @@
     padding: 0.9rem 1.1rem;
     margin-bottom: 1.5rem;
     font-style: italic;
+  }
+  .required-star {
+    color: var(--danger);
+    font-size: 0.7rem;
+    vertical-align: super;
+    margin-left: 1px;
+  }
+  .field-error {
+    border-color: var(--danger) !important;
+    box-shadow: 0 0 0 3px rgba(248,113,113,0.1) !important;
+  }
+  /* Confirmation modal */
+  .confirm-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+  }
+  .confirm-overlay.open { display: flex; }
+  .confirm-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 2rem 2.4rem;
+    max-width: 420px;
+    width: 90%;
+    text-align: center;
+  }
+  .confirm-modal h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    color: var(--accent);
+    margin-bottom: 0.8rem;
+  }
+  .confirm-modal p {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 0.5rem;
+  }
+  .confirm-modal .missing-list {
+    font-size: 0.8rem;
+    color: var(--text);
+    margin: 0.8rem 0 1.2rem;
+    text-align: left;
+    padding-left: 1rem;
+  }
+  .confirm-modal .missing-list li { margin-bottom: 0.3rem; opacity: 0.8; }
+  .confirm-btns { display: flex; gap: 0.8rem; justify-content: center; margin-top: 1rem; }
+  .confirm-btn-yes {
+    background: var(--accent); color: #000; border: none;
+    padding: 0.6rem 1.6rem; border-radius: 8px;
+    font-family: 'Syne',sans-serif; font-weight: 700; font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .confirm-btn-no {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 0.6rem 1.4rem; border-radius: 8px;
+    font-family: 'Syne',sans-serif; font-size: 0.82rem; cursor: pointer;
+  }
+  /* Disclaimer */
+  .disclaimer-block {
+    margin-top: 2rem;
+    padding: 1.4rem 1.8rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  .disclaimer-quote {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 0.95rem;
+    color: var(--accent);
+    margin-bottom: 0.8rem;
+    line-height: 1.5;
+  }
+  .disclaimer-text {
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.7;
+    max-width: 600px;
+    margin: 0 auto;
+    opacity: 0.75;
+  }
+  .profit-btn {
+    padding: 0.45rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .profit-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .profit-btn.active { background: rgba(232,196,106,0.12); border-color: var(--accent); color: var(--accent); }
+  .sub-metric.na { opacity: 0.4; filter: grayscale(1); }
+  .sub-metric.na .sub-metric-label::after { content: " — not applicable"; color: var(--muted); font-size:0.55rem; }
+  .scope-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .scope-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .scope-btn.active { background: rgba(232,196,106,0.12); border-color: var(--accent); color: var(--accent); }
+  .ph-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    background: rgba(0,130,80,0.12);
+    border: 1px solid rgba(0,180,100,0.25);
+    color: #4ade80;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    margin-left: 0.4rem;
+    vertical-align: middle;
   }
   .ml-badge {
     font-family: 'DM Mono', monospace;
@@ -593,6 +738,105 @@
   }
   .route-title { font-size: 0.82rem; font-weight: 700; color: var(--accent3); margin-bottom: 0.3rem; }
   .route-rationale { font-size: 0.8rem; line-height: 1.6; color: rgba(240,236,228,0.75); }
+  .story-advisor-block {
+    background: linear-gradient(135deg, rgba(192,132,252,0.06) 0%, rgba(56,189,248,0.04) 100%);
+    border: 1px solid rgba(192,132,252,0.2);
+    border-radius: 12px;
+    padding: 1.6rem 1.8rem;
+    margin-top: 0.5rem;
+  }
+  .story-advisor-block .verdict {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--accent2);
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    margin-bottom: 1.2rem;
+    line-height: 1.4;
+  }
+  .story-advisor-block .honest-take {
+    color: var(--text);
+    font-size: 0.88rem;
+    line-height: 1.7;
+    margin-bottom: 1.2rem;
+    opacity: 0.9;
+  }
+  .story-advisor-block .advisor-section-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent2);
+    margin: 1rem 0 0.5rem;
+    opacity: 0.8;
+  }
+  .story-advisor-block .works-list,
+  .story-advisor-block .issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+  }
+  .story-advisor-block .works-item {
+    font-size: 0.82rem;
+    color: var(--success);
+    line-height: 1.5;
+    padding-left: 1rem;
+    position: relative;
+  }
+  .story-advisor-block .works-item::before { content: "✓"; position:absolute; left:0; }
+  .story-advisor-block .issues-item {
+    font-size: 0.82rem;
+    color: var(--danger);
+    line-height: 1.5;
+    padding-left: 1rem;
+    position: relative;
+    opacity: 0.85;
+  }
+  .story-advisor-block .issues-item::before { content: "⚠"; position:absolute; left:0; }
+  .story-advisor-block .thematic-focus {
+    font-size: 0.84rem;
+    color: var(--accent);
+    font-style: italic;
+    line-height: 1.6;
+    padding: 0.6rem 1rem;
+    border-left: 2px solid var(--accent);
+    margin: 0.5rem 0;
+  }
+  .story-advisor-block .comparable-films {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
+  }
+  .story-advisor-block .comp-film-pill {
+    background: rgba(232,196,106,0.1);
+    border: 1px solid rgba(232,196,106,0.25);
+    border-radius: 20px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .story-advisor-block .story-suggestion {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.5rem;
+    border-left: 3px solid var(--accent2);
+  }
+  .story-advisor-block .story-suggestion-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--accent2);
+    margin-bottom: 0.3rem;
+    letter-spacing: 0.03em;
+  }
+  .story-advisor-block .story-suggestion-detail {
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.55;
+  }
   .market-insight {
     background: linear-gradient(135deg, rgba(232,196,106,0.06), rgba(192,132,252,0.06));
     border: 1px solid rgba(232,196,106,0.15);
@@ -678,15 +922,19 @@
     <div class="section-label">Project Details</div>
 
     <div class="field-group">
-      <label>Story Pitch</label>
+      <label>Story Pitch <span class="required-star">*</span></label>
       <textarea id="story_pitch" placeholder="Brief logline or synopsis of your film idea..."></textarea>
     </div>
 
-    <!-- FEATURE 6: Main Theme with autocomplete suggestions -->
+    <!-- FEATURE 6: Main Theme — multi-tag with autocomplete -->
     <div class="field-group">
-      <label>Main Theme</label>
+      <label>Main Theme <span class="required-star">*</span> <span style="font-size:0.6rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(type to add multiple)</span></label>
       <div class="autocomplete-wrapper">
-        <input type="text" id="main_theme" placeholder="e.g. Redemption, Identity, Power..." autocomplete="off" oninput="onThemeInput(this)" onkeydown="onThemeKeyDown(event)" onblur="closeThemeList()"/>
+        <div class="theme-tag-box" id="theme-tag-box" onclick="document.getElementById('theme-input').focus()">
+          <div id="theme-tags"></div>
+          <input type="text" id="theme-input" placeholder="e.g. Redemption, Corruption..." autocomplete="off"
+            oninput="onThemeInput(this)" onkeydown="onThemeKeyDown(event)" onblur="closeThemeList()" style="border:none;background:transparent;outline:none;color:var(--text);font-family:Syne,sans-serif;font-size:0.85rem;padding:0.2rem 0;min-width:120px;flex:1"/>
+        </div>
         <div class="autocomplete-list" id="theme-list"></div>
       </div>
     </div>
@@ -694,7 +942,7 @@
     <div class="two-col">
       <!-- FEATURE 5: Multi-select Genre -->
       <div class="field-group">
-        <label>Genre</label>
+        <label>Genre <span class="required-star">*</span></label>
         <div class="multi-select-wrapper" id="wrapper-genre">
           <div class="multi-select-display" id="display-genre" tabindex="0" onclick="toggleDropdown('genre')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('genre')">
             <span class="placeholder">Select genre(s)</span>
@@ -711,18 +959,49 @@
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Fantasy')"><span class="check"></span>Fantasy</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Horror')"><span class="check"></span>Horror</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Mystery')"><span class="check"></span>Mystery</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Political Drama')"><span class="check"></span>Political Drama</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Romance')"><span class="check"></span>Romance</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Science Fiction')"><span class="check"></span>Science Fiction</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Slice of Life')"><span class="check"></span>Slice of Life</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Thriller')"><span class="check"></span>Thriller</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'War')"><span class="check"></span>War</div>
             <div class="multi-select-option" onclick="toggleOption('genre',this,'Western')"><span class="check"></span>Western</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Psychological')"><span class="check"></span>Psychological</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Philosophical')"><span class="check"></span>Philosophical</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Social Commentary')"><span class="check"></span>Social Commentary</div>
+            <div class="multi-select-option" onclick="toggleOption('genre',this,'Arthouse')"><span class="check"></span>Arthouse</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Secondary Genre — subtle tonal hints, not the main genre -->
+      <div class="field-group" style="margin-top:-0.5rem;">
+        <label style="font-size:0.65rem;opacity:0.7;">Secondary Genre / Tonal Hint <span style="font-size:0.6rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(optional — e.g. this is a Drama but with hints of...)</span></label>
+        <div class="multi-select-wrapper" id="wrapper-secondary_genre">
+          <div class="multi-select-display" id="display-secondary_genre" tabindex="0" onclick="toggleDropdown('secondary_genre')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('secondary_genre')" style="opacity:0.8;">
+            <span class="placeholder">Hints of... (optional)</span>
+            <span class="multi-select-arrow">▾</span>
+          </div>
+          <div class="multi-select-dropdown" id="dropdown-secondary_genre">
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Comedy')"><span class="check"></span>hints of Comedy</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Romance')"><span class="check"></span>hints of Romance</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Drama')"><span class="check"></span>hints of Drama</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Thriller')"><span class="check"></span>hints of Thriller</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Horror')"><span class="check"></span>hints of Horror</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Action')"><span class="check"></span>hints of Action</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Mystery')"><span class="check"></span>hints of Mystery</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Fantasy')"><span class="check"></span>hints of Fantasy</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Science Fiction')"><span class="check"></span>hints of Science Fiction</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Documentary')"><span class="check"></span>hints of Documentary</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Satire')"><span class="check"></span>hints of Satire</div>
+            <div class="multi-select-option" onclick="toggleOption('secondary_genre',this,'Coming-of-Age')"><span class="check"></span>hints of Coming-of-Age</div>
           </div>
         </div>
       </div>
 
       <!-- FEATURE 5: Multi-select Tone -->
       <div class="field-group">
-        <label>Tone</label>
+        <label>Tone <span class="required-star">*</span></label>
         <div class="multi-select-wrapper" id="wrapper-tone">
           <div class="multi-select-display" id="display-tone" tabindex="0" onclick="toggleDropdown('tone')" onkeydown="if(event.key==='Enter'||event.key===' ')toggleDropdown('tone')">
             <span class="placeholder">Select tone(s)</span>
@@ -741,6 +1020,16 @@
             <div class="multi-select-option" onclick="toggleOption('tone',this,'Surreal')"><span class="check"></span>Surreal</div>
             <div class="multi-select-option" onclick="toggleOption('tone',this,'Nostalgic')"><span class="check"></span>Nostalgic</div>
             <div class="multi-select-option" onclick="toggleOption('tone',this,'Gritty')"><span class="check"></span>Gritty</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Realistic')"><span class="check"></span>Realistic</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Thought-provoking')"><span class="check"></span>Thought-provoking</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Melancholic')"><span class="check"></span>Melancholic</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Tense')"><span class="check"></span>Tense</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Ambiguous')"><span class="check"></span>Ambiguous</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Poetic')"><span class="check"></span>Poetic</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Whimsical')"><span class="check"></span>Whimsical</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Cynical')"><span class="check"></span>Cynical</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Intimate')"><span class="check"></span>Intimate</div>
+            <div class="multi-select-option" onclick="toggleOption('tone',this,'Unsettling')"><span class="check"></span>Unsettling</div>
           </div>
         </div>
       </div>
@@ -784,6 +1073,8 @@
             <div class="multi-select-option" onclick="toggleOption('time_period',this,'2020s')"><span class="check"></span>2020s</div>
             <div class="multi-select-option" onclick="toggleOption('time_period',this,'Period Piece')"><span class="check"></span>Period Piece</div>
             <div class="multi-select-option" onclick="toggleOption('time_period',this,'Future/Sci-Fi')"><span class="check"></span>Future/Sci-Fi</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'Post-Apocalyptic')"><span class="check"></span>Post-Apocalyptic</div>
+            <div class="multi-select-option" onclick="toggleOption('time_period',this,'Alternate World / Universe')"><span class="check"></span>Alternate World / Universe</div>
           </div>
         </div>
       </div>
@@ -837,6 +1128,16 @@
 
     <div class="section-label" style="margin-top:1rem;">Goals & Intent</div>
 
+    <!-- Market Scope -->
+    <div class="field-group">
+      <label>Market Scope</label>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;" id="market-scope-group">
+        <button type="button" class="scope-btn active" data-scope="international" onclick="setScope('international')">🌍 International</button>
+        <button type="button" class="scope-btn" data-scope="filipino" onclick="setScope('filipino')">🇵🇭 Filipino</button>
+        <button type="button" class="scope-btn" data-scope="mixed" onclick="setScope('mixed')">🌐 Mixed</button>
+      </div>
+    </div>
+
     <!-- Distribution Goal multi-select -->
     <div class="field-group">
       <label>Distribution Goal</label>
@@ -867,7 +1168,6 @@
           <span class="multi-select-arrow">▾</span>
         </div>
         <div class="multi-select-dropdown" id="dropdown-film_purpose">
-          <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Generate Profit')"><span class="check"></span>Generate Profit</div>
           <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Pure Entertainment')"><span class="check"></span>Pure Entertainment</div>
           <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Send a Social Message')"><span class="check"></span>Send a Social Message</div>
           <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Artistic Expression')"><span class="check"></span>Artistic Expression</div>
@@ -876,6 +1176,15 @@
           <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Just for Fun')"><span class="check"></span>Just for Fun</div>
           <div class="multi-select-option" onclick="toggleOption('film_purpose',this,'Raise Awareness')"><span class="check"></span>Raise Awareness</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Profit toggle -->
+    <div class="field-group" style="margin-top:0.5rem;">
+      <label>Aiming to Generate Profit?</label>
+      <div style="display:flex;gap:0.6rem;margin-top:0.2rem;">
+        <button type="button" class="profit-btn active" id="profit-yes" onclick="setProfit(true)">💰 Yes</button>
+        <button type="button" class="profit-btn" id="profit-no" onclick="setProfit(false)">🎨 No — Not the Goal</button>
       </div>
     </div>
 
@@ -904,9 +1213,25 @@
 
 <script>
 // ─── MULTI-SELECT STATE ───────────────────────────────────────────────
+let currentScope = 'international';
+
+let wantsProfit = true;
+function setProfit(val) {
+  wantsProfit = val;
+  document.getElementById('profit-yes').classList.toggle('active', val);
+  document.getElementById('profit-no').classList.toggle('active', !val);
+}
+
+function setScope(scope) {
+  currentScope = scope;
+  document.querySelectorAll('.scope-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.scope === scope);
+  });
+}
+
 const multiState = {
   genre: [], tone: [], target_audience: [], time_period: [], casting_category: [],
-  distribution_goal: [], film_purpose: []
+  distribution_goal: [], film_purpose: [], secondary_genre: []
 };
 
 function toggleDropdown(field) {
@@ -982,9 +1307,18 @@ const THEMES = [
   'Ambition','Greed','Faith','Doubt','Isolation','Connection','Coming of Age',
   'Class Struggle','Race','Gender','Mortality','Memory','Time','Fate','Free Will',
   'Obsession','Jealousy','Guilt','Innocence','Violence','Humanity','Nature vs Nurture',
-  'Technology','Progress','Tradition','Revolution','Oppression','Resistance'
+  'Technology','Progress','Tradition','Revolution','Oppression','Resistance',
+  'Politics','Power Struggle','Moral Ambiguity','Self-Discovery','Accountability',
+  'Legacy','Vengeance','Compassion','Disillusionment','Alienation','Purpose',
+  'Ethics','Inequality','Manipulation','Paranoia','Sacrifice for Others',
+  'The Cost of Ambition','Hidden Identity','Coming Apart','Broken Systems',
+  'Cycles of Violence','The Nature of Evil','Second Chances','Loss of Innocence',
+  'Toxic Love','Chosen Family','Belonging','Cultural Clash','Radicalization',
+  'Mental Health','Grief','Trauma','Resilience','The Passage of Time'
 ];
 
+// Tracks selected themes as an array
+let selectedThemes = [];
 let themeActiveIdx = -1;
 
 function onThemeInput(input) {
@@ -992,11 +1326,11 @@ function onThemeInput(input) {
   const list = document.getElementById('theme-list');
   themeActiveIdx = -1;
   if (!val) { list.classList.remove('open'); list.innerHTML = ''; return; }
-  const matches = THEMES.filter(t => t.toLowerCase().includes(val)).slice(0, 7);
+  const matches = THEMES.filter(t => !selectedThemes.includes(t) && t.toLowerCase().includes(val)).slice(0, 8);
   if (!matches.length) { list.classList.remove('open'); list.innerHTML = ''; return; }
   list.innerHTML = matches.map((m, i) => {
-    const hi = m.replace(new RegExp(`(${val})`, 'gi'), '<span>$1</span>');
-    return `<div class="autocomplete-item" onmousedown="event.preventDefault();selectTheme('${m}')" data-idx="${i}">${hi}</div>`;
+    const hi = m.replace(new RegExp('(' + val.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi'), '<span>$1</span>');
+    return '<div class="autocomplete-item" onmousedown="event.preventDefault();addThemeTag(\'' + m + '\')" data-idx="' + i + '">' + hi + '</div>';
   }).join('');
   list.classList.add('open');
 }
@@ -1004,26 +1338,59 @@ function onThemeInput(input) {
 function onThemeKeyDown(e) {
   const list = document.getElementById('theme-list');
   const items = list.querySelectorAll('.autocomplete-item');
+  if (e.key === 'Backspace' && document.getElementById('theme-input').value === '' && selectedThemes.length) {
+    removeThemeTag(selectedThemes[selectedThemes.length - 1]);
+    return;
+  }
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    if (themeActiveIdx >= 0 && items[themeActiveIdx]) {
+      addThemeTag(items[themeActiveIdx].textContent.trim());
+    } else {
+      const raw = document.getElementById('theme-input').value.trim();
+      if (raw) addThemeTag(raw);
+    }
+    return;
+  }
   if (!items.length) return;
   if (e.key === 'ArrowDown') { e.preventDefault(); themeActiveIdx = Math.min(themeActiveIdx+1, items.length-1); updateThemeActive(items); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); themeActiveIdx = Math.max(themeActiveIdx-1, -1); updateThemeActive(items); }
-  else if (e.key === 'Enter' && themeActiveIdx >= 0) { e.preventDefault(); selectTheme(items[themeActiveIdx].textContent); }
   else if (e.key === 'Escape') { closeThemeList(); }
+}
+
+function addThemeTag(val) {
+  val = val.trim();
+  if (!val || selectedThemes.includes(val)) {
+    document.getElementById('theme-input').value = '';
+    closeThemeList();
+    return;
+  }
+  selectedThemes.push(val);
+  renderThemeTags();
+  document.getElementById('theme-input').value = '';
+  closeThemeList();
+}
+
+function removeThemeTag(val) {
+  selectedThemes = selectedThemes.filter(t => t !== val);
+  renderThemeTags();
+}
+
+function renderThemeTags() {
+  const container = document.getElementById('theme-tags');
+  container.innerHTML = selectedThemes.map(t =>
+    '<span class="tag">' + t +
+    '<span class="remove" onmousedown="event.preventDefault();removeThemeTag(\'' + t.replace(/'/g,"\\'") + '\')">×</span></span>'
+  ).join('');
 }
 
 function updateThemeActive(items) {
   items.forEach((it, i) => it.classList.toggle('active', i === themeActiveIdx));
 }
 
-function selectTheme(val) {
-  document.getElementById('main_theme').value = val;
-  closeThemeList();
-}
-
 function closeThemeList() {
   setTimeout(() => {
-    const list = document.getElementById('theme-list');
-    list.classList.remove('open');
+    document.getElementById('theme-list').classList.remove('open');
   }, 100);
 }
 
@@ -1088,10 +1455,12 @@ function scoreColor(s) {
 }
 
 // ─── ANALYZE ────────────────────────────────────────────────────────
-async function analyze() {
-  const data = {
-    story_pitch: document.getElementById('story_pitch').value,
-    main_theme: document.getElementById('main_theme').value,
+let _pendingAnalyzeData = null;
+
+function buildAnalyzeData() {
+  return {
+    story_pitch: document.getElementById('story_pitch').value.trim(),
+    main_theme: selectedThemes.join(', '),
     budget_range: document.getElementById('budget_range').value,
     production_schedule: document.getElementById('production_schedule').value,
     genre: [...multiState.genre],
@@ -1101,13 +1470,15 @@ async function analyze() {
     casting_category: [...multiState.casting_category],
     distribution_goal: [...multiState.distribution_goal],
     film_purpose: [...multiState.film_purpose],
+    secondary_genre: [...(multiState.secondary_genre||[])],
+    market_scope: currentScope,
+    wants_profit: wantsProfit,
   };
+}
 
-  if (!data.genre.length) { alert('Please select at least one genre to continue.'); return; }
-
+async function runAnalysis(data) {
   document.getElementById('loading').classList.add('active');
   document.querySelector('.analyze-btn').disabled = true;
-
   try {
     const resp = await fetch('/analyze', {
       method: 'POST',
@@ -1115,42 +1486,148 @@ async function analyze() {
       body: JSON.stringify(data)
     });
     const result = await resp.json();
+    if (result.error) throw new Error(result.error);
     renderResults(result, data);
   } catch (e) {
-    alert('Something went wrong. Check your API keys and try again.');
+    alert('Something went wrong. Please try again.\n' + (e.message || ''));
   } finally {
     document.getElementById('loading').classList.remove('active');
     document.querySelector('.analyze-btn').disabled = false;
   }
 }
 
+function analyze() {
+  const data = buildAnalyzeData();
+
+  // ── Required field validation ───────────────────────────────────────
+  const errors = [];
+  if (!data.story_pitch) errors.push({ field: 'story_pitch', label: 'Story Pitch' });
+  if (!data.main_theme)  errors.push({ field: 'theme-tag-box', label: 'Main Theme' });
+  if (!data.genre.length) errors.push({ field: 'display-genre', label: 'Genre' });
+  if (!data.tone.length)  errors.push({ field: 'display-tone',  label: 'Tone' });
+
+  // Clear previous error states
+  document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+
+  if (errors.length) {
+    errors.forEach(e => {
+      const el = document.getElementById(e.field);
+      if (el) el.classList.add('field-error');
+    });
+    const labels = errors.map(e => e.label).join(', ');
+    alert('Please fill in the required fields: ' + labels);
+    return;
+  }
+
+  // ── Optional field confirmation ────────────────────────────────────
+  const optional_missing = [];
+  if (!data.budget_range)          optional_missing.push('Budget Range (Financial Success metric will show as undecided)');
+  if (!data.target_audience.length) optional_missing.push('Target Audience (Audience Reception metric will show as undecided)');
+  if (!data.time_period.length)    optional_missing.push('Time Period');
+  if (!data.casting_category.length) optional_missing.push('Casting Category');
+  if (!data.distribution_goal.length) optional_missing.push('Distribution Goal');
+
+  if (optional_missing.length) {
+    _pendingAnalyzeData = data;
+    const list = document.getElementById('confirm-missing-list');
+    list.innerHTML = optional_missing.map(m => '<li>' + m + '</li>').join('');
+    document.getElementById('confirm-overlay').classList.add('open');
+    return;
+  }
+
+  runAnalysis(data);
+}
+
+function confirmAnalyze() {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if (_pendingAnalyzeData) runAnalysis(_pendingAnalyzeData);
+}
+
+function closeConfirm() {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  _pendingAnalyzeData = null;
+}
+
 // ─── RENDER ─────────────────────────────────────────────────────────
 function renderResults(result, formData) {
-  const { similar_films, success_rate, ai_analysis, sub_reasons, sub_scores, method } = result;
+  const { intl_surface, intl_deep, ph_surface, ph_deep,
+          intl_films, ph_films, similar_films, success_rate, ai_analysis,
+          sub_reasons, sub_scores, method, market_scope, wants_profit,
+          story_advice } = result;
+  // Use server-side wants_profit (authoritative) merged with formData
+  const showFinancial = (wants_profit !== false && wants_profit !== 'false');
+
+  // Build film card HTML for a list of films
+  function buildFilmCards(films, showPHBadge) {
+    return (films || []).map((f, i) => `
+      <a class="film-card stagger-${Math.min(i+1,4)}" href="https://www.themoviedb.org/movie/${f.tmdb_id || ''}" target="_blank" rel="noopener">
+        ${f.poster
+          ? `<img class="film-poster" src="${f.poster}" alt="${f.title}" loading="lazy"/>`
+          : `<div class="film-poster-placeholder">🎞️</div>`}
+        <div class="film-info">
+          <div class="film-title">${f.title}${showPHBadge && f.is_filipino ? '<span class="ph-badge">🇵🇭 Filipino</span>' : ''}</div>
+          <div class="film-meta">
+            <span>${f.release_date}</span>
+            <span class="film-score">★ ${f.vote_average}</span>
+          </div>
+          ${f.plot ? `<div class="film-plot">${f.plot}</div>` : ''}
+          ${f.reason ? `<div class="film-reason">↳ ${f.reason}</div>` : ''}
+          <div class="film-link-hint">🔗 View on TMDB</div>
+        </div>
+      </a>
+    `).join('');
+  }
   const panel = document.getElementById('results');
   const rateColor = success_rate >= 70 ? 'high' : success_rate >= 45 ? 'mid' : 'low';
   const rateColorVar = rateColor === 'high' ? 'var(--success)' : rateColor === 'mid' ? 'var(--accent)' : 'var(--danger)';
 
   const sub = calcSubMetrics(formData, sub_reasons, sub_scores);
+  // Override with server sentinel values for undecided fields
+  if (sub_scores && sub_scores.financial < 0) sub.financial.score = -1;
+  if (sub_scores && sub_scores.audience  < 0) sub.audience.score  = -1;
 
-  // FEATURE 1+2+3: film cards with plot, reason, and clickable link
-  const filmsHTML = similar_films.map((f, i) => `
-    <a class="film-card stagger-${Math.min(i+1,4)}" href="https://www.themoviedb.org/movie/${f.tmdb_id || ''}" target="_blank" rel="noopener" title="View on TMDB">
-      ${f.poster
-        ? `<img class="film-poster" src="${f.poster}" alt="${f.title}" loading="lazy"/>`
-        : `<div class="film-poster-placeholder">🎞️</div>`}
-      <div class="film-info">
-        <div class="film-title">${f.title}</div>
-        <div class="film-meta">
-          <span>${f.release_date}</span>
-          <span class="film-score">★ ${f.vote_average}</span>
+  // Build film cards helper
+  function buildFilmSection(films, showPHBadge, titleLabel, sublabel) {
+    if (!films || !films.length) return '';
+    const cards = films.map((f, i) => `
+      <a class="film-card stagger-${Math.min(i+1,4)}" href="https://www.themoviedb.org/movie/${f.tmdb_id || ''}" target="_blank" rel="noopener">
+        ${f.poster
+          ? `<img class="film-poster" src="${f.poster}" alt="${f.title}" loading="lazy"/>`
+          : `<div class="film-poster-placeholder">🎞️</div>`}
+        <div class="film-info">
+          <div class="film-title">${f.title}${showPHBadge && f.is_filipino ? '<span class="ph-badge">🇵🇭</span>' : ''}</div>
+          <div class="film-meta"><span>${f.release_date}</span><span class="film-score">★ ${f.vote_average}</span></div>
+          ${f.plot ? `<div class="film-plot">${f.plot}</div>` : ''}
+          ${f.reason ? `<div class="film-reason">↳ ${f.reason}</div>` : ''}
+          <div class="film-link-hint">🔗 View on TMDB</div>
         </div>
-        ${f.plot ? `<div class="film-plot">${f.plot}</div>` : ''}
-        ${f.reason ? `<div class="film-reason">↳ ${f.reason}</div>` : ''}
-        <div class="film-link-hint">🔗 View on TMDB</div>
+      </a>`).join('');
+    return `
+      <div class="block-title stagger-2">${titleLabel}
+        ${sublabel ? `<span style="font-size:0.6rem;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none;margin-left:0.5rem">${sublabel}</span>` : ''}
       </div>
-    </a>
-  `).join('');
+      <div class="films-grid stagger-2">${cards}</div>`;
+  }
+
+  // Destructure film type arrays from result
+
+  let filmsSectionHTML = '';
+  if (market_scope === 'international' || !market_scope) {
+    filmsSectionHTML =
+      buildFilmSection(intl_surface, false, '🌍 Surface-Level Matches', 'Similar in premise, character, and general storyline') +
+      buildFilmSection(intl_deep,    false, '🔍 Deep-Level Matches',    'Similar in specific scenes, tone, and thematic nuance');
+  } else if (market_scope === 'filipino') {
+    filmsSectionHTML =
+      buildFilmSection(ph_surface, true, '🇵🇭 Filipino Surface-Level Matches', 'Similar in premise and story') +
+      buildFilmSection(ph_deep,    true, '🇵🇭 Filipino Deep-Level Matches',    'Similar in detail and theme') ||
+      '<div class="block-title stagger-2" style="color:var(--muted)">No Filipino film matches found</div>';
+  } else if (market_scope === 'mixed') {
+    filmsSectionHTML =
+      buildFilmSection(intl_surface, false, '🌍 International Surface-Level Matches', 'Similar in premise and story') +
+      buildFilmSection(intl_deep,    false, '🔍 International Deep-Level Matches',    'Similar in tone and detail') +
+      buildFilmSection(ph_surface,   true,  '🇵🇭 Filipino Surface-Level Matches',     'Similar in premise and story') +
+      buildFilmSection(ph_deep,      true,  '🇵🇭 Filipino Deep-Level Matches',        'Similar in tone and detail');
+  }
 
   const strengthsHTML = (ai_analysis.strengths || []).map(s =>
     `<span class="pill strength">✓ ${s}</span>`).join('');
@@ -1192,23 +1669,42 @@ function renderResults(result, formData) {
       <div class="commercial-reason">${sub_reasons.commercial_success}</div>
       ` : ''}
       <div class="sub-metrics">
-        <div class="sub-metric">
+        <div class="sub-metric${!showFinancial ? ' na' : ''}">
           <div class="sub-metric-label">📈 Predicted Financial Success</div>
+          ${!showFinancial ? `
+          <div class="sub-metric-bar-track"><div class="sub-metric-bar" style="width:0%;background:var(--muted)"></div></div>
+          <div class="sub-metric-value" style="color:var(--muted)">N/A</div>
+          <div class="sub-metric-desc" style="color:var(--muted)">Financial success not a stated goal</div>
+          <div class="sub-metric-reason" style="color:var(--muted)">This film was not designed with profit as a primary objective.</div>
+          ` : sub.financial.score < 0 ? `
+          <div class="sub-metric-bar-track"><div class="sub-metric-bar" style="width:0%;background:var(--muted)"></div></div>
+          <div class="sub-metric-value" style="color:var(--muted)">—</div>
+          <div class="sub-metric-desc" style="color:var(--muted)">Budget not yet decided</div>
+          <div class="sub-metric-reason" style="color:var(--muted)">A budget range is needed to calculate financial success. Set a budget to see this metric.</div>
+          ` : `
           <div class="sub-metric-bar-track">
             <div class="sub-metric-bar" id="bar-financial" style="background:${scoreColor(sub.financial.score)}"></div>
           </div>
           <div class="sub-metric-value" style="color:${scoreColor(sub.financial.score)}">${sub.financial.score}%</div>
           <div class="sub-metric-desc">${sub.financial.desc}</div>
           <div class="sub-metric-reason">${sub.financial.reason}</div>
+          `}
         </div>
         <div class="sub-metric">
           <div class="sub-metric-label">👥 Predicted Audience Reception</div>
+          ${sub.audience.score < 0 ? `
+          <div class="sub-metric-bar-track"><div class="sub-metric-bar" style="width:0%;background:var(--muted)"></div></div>
+          <div class="sub-metric-value" style="color:var(--muted)">—</div>
+          <div class="sub-metric-desc" style="color:var(--muted)">Target audience not yet selected</div>
+          <div class="sub-metric-reason" style="color:var(--muted)">Select a target audience to see how well this concept aligns with viewer expectations.</div>
+          ` : `
           <div class="sub-metric-bar-track">
             <div class="sub-metric-bar" id="bar-audience" style="background:${scoreColor(sub.audience.score)}"></div>
           </div>
           <div class="sub-metric-value" style="color:${scoreColor(sub.audience.score)}">${sub.audience.score}%</div>
           <div class="sub-metric-desc">${sub.audience.desc}</div>
           <div class="sub-metric-reason">${sub.audience.reason}</div>
+          `}
         </div>
         <div class="sub-metric">
           <div class="sub-metric-label">🌍 Long-term Cultural Impact</div>
@@ -1222,10 +1718,7 @@ function renderResults(result, formData) {
       </div>
     </div>
 
-    ${similar_films.length ? `
-    <div class="block-title stagger-2">Similar Films in Database</div>
-    <div class="films-grid stagger-2">${filmsHTML}</div>
-    ` : ''}
+    ${filmsSectionHTML}
 
     <div class="block-title stagger-3">AI Strategic Analysis</div>
     <div class="analysis-block stagger-3">
@@ -1242,15 +1735,67 @@ function renderResults(result, formData) {
       ${ai_analysis.market_insight ? `
       <div class="market-insight">${ai_analysis.market_insight}</div>` : ''}
     </div>
+
+    ${story_advice ? `
+    <div class="block-title stagger-3">📖 Story Advisor</div>
+    <div class="story-advisor-block stagger-3">
+      ${story_advice.verdict ? `<div class="verdict">"${story_advice.verdict}"</div>` : ''}
+      ${story_advice.honest_take ? `<div class="honest-take">${story_advice.honest_take}</div>` : ''}
+
+      ${story_advice.what_works && story_advice.what_works.length ? `
+      <div class="advisor-section-label">What's Working</div>
+      <div class="works-list">
+        ${story_advice.what_works.map(w => `<div class="works-item">${w}</div>`).join('')}
+      </div>` : ''}
+
+      ${story_advice.what_needs_work && story_advice.what_needs_work.length ? `
+      <div class="advisor-section-label">What Needs Work</div>
+      <div class="issues-list">
+        ${story_advice.what_needs_work.map(w => `<div class="issues-item">${w}</div>`).join('')}
+      </div>` : ''}
+
+      ${story_advice.thematic_focus ? `
+      <div class="advisor-section-label">Core Theme to Lean Into</div>
+      <div class="thematic-focus">${story_advice.thematic_focus}</div>` : ''}
+
+      ${story_advice.comparable_films && story_advice.comparable_films.length ? `
+      <div class="advisor-section-label">Films in the Same Lane</div>
+      <div class="comparable-films">
+        ${story_advice.comparable_films.map(f => `<span class="comp-film-pill">${f}</span>`).join('')}
+      </div>` : ''}
+
+      ${story_advice.story_suggestions && story_advice.story_suggestions.length ? `
+      <div class="advisor-section-label">Story Development Suggestions</div>
+      ${story_advice.story_suggestions.map(s => `
+        <div class="story-suggestion">
+          <div class="story-suggestion-title">${s.title}</div>
+          <div class="story-suggestion-detail">${s.detail}</div>
+        </div>`).join('')}` : ''}
+    </div>` : ''}
+
+    <div class="disclaimer-block">
+      <div class="disclaimer-quote">"Data can map the landscape — but only you can decide where to go."</div>
+      <div class="disclaimer-text">
+        FilmVision is a decision-support tool powered by machine learning and AI. All predictions, scores,
+        and suggestions are generated from patterns in existing film data and are intended to help you
+        explore your options — not to define them. The final creative vision, the story you want to tell,
+        and the risks you're willing to take are entirely yours. Trust the data where it helps.
+        Trust your instincts where it matters most.
+      </div>
+    </div>
   `;
 
   setTimeout(() => {
     const fill = document.getElementById('meter-fill');
     if (fill) fill.style.width = success_rate + '%';
-    const bf = document.getElementById('bar-financial');
-    if (bf) bf.style.width = sub.financial.score + '%';
-    const ba = document.getElementById('bar-audience');
-    if (ba) ba.style.width = sub.audience.score + '%';
+    if (showFinancial) {
+      const bf = document.getElementById('bar-financial');
+      if (bf) bf.style.width = sub.financial.score + '%';
+    }
+    if (sub.audience.score >= 0) {
+      const ba = document.getElementById('bar-audience');
+      if (ba) ba.style.width = sub.audience.score + '%';
+    }
     const bc = document.getElementById('bar-cultural');
     if (bc) bc.style.width = sub.cultural.score + '%';
   }, 100);
@@ -1258,5 +1803,19 @@ function renderResults(result, formData) {
   panel.scrollTop = 0;
 }
 </script>
+
+<!-- Confirmation modal -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-modal">
+    <h3>Missing Optional Fields</h3>
+    <p>You haven't filled in the following fields. The analysis will still run, but some metrics may be limited:</p>
+    <ul class="missing-list" id="confirm-missing-list"></ul>
+    <p>Do you want to continue anyway?</p>
+    <div class="confirm-btns">
+      <button class="confirm-btn-yes" onclick="confirmAnalyze()">Yes, Analyze</button>
+      <button class="confirm-btn-no" onclick="closeConfirm()">Go Back</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
