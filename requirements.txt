@@ -1,7 +1,10 @@
 flask
+flask-cors
 requests
 python-dotenv
 xgboost
 scikit-learn
 numpy
 pandas
+nltk
+gunicorn

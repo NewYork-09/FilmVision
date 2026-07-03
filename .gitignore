@@ -1,1 +1,5 @@
 .env
+filmvision_users.db
+__pycache__/
+**/node_modules/
+frontend/my-vue-app/dist/

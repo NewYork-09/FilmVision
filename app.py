@@ -1,10 +1,65 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask_cors import CORS
 import os, requests, json, re, pickle, numpy as np
 from dotenv import load_dotenv
 
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+except Exception:
+    cosine_similarity = None
+
 load_dotenv()
 
+# ── NLTK (used for anchor-noun extraction — see _extract_anchor_words) ─
+# Optional dependency: if NLTK or its data packages aren't available, anchor
+# extraction falls back to the fixed CINEMATIC_NOUNS list so the app never
+# crashes over this.
+NLTK_AVAILABLE = False
+try:
+    import nltk
+    from nltk import pos_tag, word_tokenize
+    for _pkg_path, _pkg_name in [
+        ("tokenizers/punkt", "punkt"),
+        ("tokenizers/punkt_tab", "punkt_tab"),
+        ("taggers/averaged_perceptron_tagger", "averaged_perceptron_tagger"),
+        ("taggers/averaged_perceptron_tagger_eng", "averaged_perceptron_tagger_eng"),
+    ]:
+        try:
+            nltk.data.find(_pkg_path)
+        except LookupError:
+            try:
+                nltk.download(_pkg_name, quiet=True)
+            except Exception:
+                pass
+    NLTK_AVAILABLE = True
+except Exception as e:
+    print(f"[NLTK] Unavailable, will use fallback anchor extraction: {e}")
+
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "fv-dev-secret-change-in-prod")
+if app.secret_key == "fv-dev-secret-change-in-prod":
+    print("[SECURITY WARNING] SECRET_KEY is not set — using an insecure default that's "
+          "visible in this source file. Set a real SECRET_KEY environment variable on "
+          "your host before deploying, or anyone who has seen this code can forge valid "
+          "login sessions for any user.")
+
+# Since frontend and backend are served from the same origin (Flask serves the built Vue
+# app directly), cookies don't need cross-site handling — the default SameSite=Lax is
+# correct. SESSION_COOKIE_SECURE is tied to FLASK_ENV so login still works over plain
+# HTTP during local development, but requires HTTPS once FLASK_ENV=production is set on
+# your host (browsers won't send a Secure cookie over HTTP, so hardcoding this True would
+# silently break local testing).
+IS_PRODUCTION = os.getenv("FLASK_ENV", "development") == "production"
+app.config.update(
+    SESSION_COOKIE_SECURE=IS_PRODUCTION,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"], supports_credentials=True)
+
+# ── Auth blueprint ──────────────────────────────────────────────────────
+from auth import auth_bp
+app.register_blueprint(auth_bp)
 
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -17,6 +72,12 @@ knn_model    = None
 scaler       = None
 feature_cols = None
 film_db      = None
+
+# TF-IDF vectorizer is loaded separately from the rest — it's a real relevance
+# signal for scoring (see _semantic_similarity) but isn't required for the app's
+# core prediction/search flow, so its absence shouldn't flip ML_READY off.
+TFIDF_READY     = False
+tfidf_vectorizer = None
 
 def load_models():
     global ML_READY, xgb_model, knn_model, scaler, feature_cols, film_db
@@ -31,7 +92,49 @@ def load_models():
     except FileNotFoundError as e:
         print(f"[ML] Model files not found ({e}). Using fallback scoring.")
 
+def load_tfidf():
+    global TFIDF_READY, tfidf_vectorizer
+    if cosine_similarity is None:
+        print("[TFIDF] scikit-learn cosine_similarity unavailable — using keyword-overlap fallback.")
+        return
+    try:
+        with open("tfidf_vectorizer.pkl", "rb") as f:
+            tfidf_vectorizer = pickle.load(f)
+        TFIDF_READY = True
+        print("[TFIDF] Vectorizer loaded — using trained semantic similarity for film matching.")
+    except FileNotFoundError:
+        print("[TFIDF] tfidf_vectorizer.pkl not found — using keyword-overlap fallback for matching.")
+    except Exception as e:
+        print(f"[TFIDF] Failed to load ({e}) — using keyword-overlap fallback.")
+
 load_models()
+load_tfidf()
+
+# ── Corpus vocabulary frequency (for anchor-word rarity ranking) ───────
+# Built from the trained dataset's own overviews so anchor nouns extracted from
+# a pitch can be ranked by rarity — a rarer noun ("factory", "successor") is a
+# more specific, more useful search anchor than a common one ("family", "man"),
+# even when both are grammatically valid nouns.
+_VOCAB_FREQ = {}
+def _build_vocab_freq():
+    global _VOCAB_FREQ
+    if film_db is None:
+        return
+    try:
+        from collections import Counter
+        counter = Counter()
+        overview_col = next((c for c in ("overview", "overviews", "plot")
+                              if c in getattr(film_db, "columns", [])), None)
+        if overview_col:
+            for text in film_db[overview_col].dropna().astype(str):
+                words = re.sub(r"[^a-z0-9 ]", " ", text.lower()).split()
+                counter.update(w for w in words if len(w) > 3)
+        _VOCAB_FREQ = dict(counter)
+        print(f"[Vocab] Built rarity vocabulary: {len(_VOCAB_FREQ)} terms")
+    except Exception as e:
+        print(f"[Vocab] Failed to build frequency table: {e}")
+
+_build_vocab_freq()
 
 # ── Load Filipino film CSV ─────────────────────────────────────────────
 
@@ -354,11 +457,16 @@ def adjust_success_rate(base_score, sub_factors, data):
     return max(15, min(96, round(score)))
 
 # ── Feature vector builder ─────────────────────────────────────────────
-def build_feature_vector(form_data):
+def build_feature_vector(form_data, is_filipino=False):
     """
     Builds a feature vector that ALWAYS matches the trained model shape.
     Uses feature_cols from the pkl to determine exact columns needed.
     Any column the model expects that we don't compute defaults to 0.
+
+    is_filipino: when True, builds the query vector for a Filipino-market-scope search
+    (sets is_filipino=1/is_english=0 in the vector) so KNN's distance calculation reflects
+    what's actually being searched for, instead of always querying as if for an
+    international film. Used by get_deep_films's Filipino branch.
     """
     genres = as_list(form_data.get("genre"))
     times  = as_list(form_data.get("time_period"))
@@ -380,8 +488,8 @@ def build_feature_vector(form_data):
     row["release_decade"] = decade_map.get(times[0], 2020) if times else 2020
 
     # Language/type flags — include ALL possible flags; feature_cols will select the right ones
-    row["is_english"]  = 1
-    row["is_filipino"] = 0   # user concept is not a Filipino film
+    row["is_english"]  = 0 if is_filipino else 1
+    row["is_filipino"] = 1 if is_filipino else 0
     row["is_adult"]    = 0
 
     # Use feature_cols from pkl to build exact vector — model gets exactly what it was trained on
@@ -463,17 +571,44 @@ def _knn_score_single(tmdb_result, form_data):
     dist = float(np.linalg.norm(user_vec_scaled - film_vec_scaled))
     return round(max(0, 100 - dist * 8), 1)
 
-# ── Keyword overlap score ──────────────────────────────────────────────
+# ── Keyword overlap score (fallback) ────────────────────────────────────
 def _keyword_overlap(pitch_words, overview):
+    """
+    Word-boundary-aware overlap between pitch words and a film's overview.
+    Previously used plain substring containment (`word in overview_text`) plus a
+    6-character prefix match — both of which produced false positives, e.g. the
+    pitch word "self" matching inside "himself", or a rare word's 6-letter prefix
+    coincidentally matching an unrelated word. Whole-word matching via regex
+    removes that class of noise from the fallback scorer (used when the trained
+    TF-IDF vectorizer isn't available).
+    """
     if not pitch_words or not overview:
         return 0.0
     ov = overview.lower()
     hits = 0
     for w in pitch_words:
         if len(w) <= 3: continue
-        if w in ov:                        hits += 1.0
-        elif len(w) >= 6 and w[:6] in ov:  hits += 0.5
+        if re.search(r"\b" + re.escape(w) + r"\b", ov):
+            hits += 1.0
     return min(1.0, hits / max(len(pitch_words), 1))
+
+# ── Real semantic similarity (TF-IDF cosine) ────────────────────────────
+def _semantic_similarity(pitch_words, pitch_text, overview):
+    """
+    Measures actual content relevance between the pitch and a candidate film's
+    overview. Uses the trained tfidf_vectorizer.pkl (fit on the training corpus)
+    for a real cosine-similarity signal when available — this is a substantially
+    stronger and harder-to-fool signal than raw substring word-overlap, since it
+    weighs term rarity/importance rather than treating every shared word equally.
+    Falls back to _keyword_overlap if the vectorizer isn't loaded.
+    """
+    if TFIDF_READY and overview and pitch_text:
+        try:
+            vecs = tfidf_vectorizer.transform([pitch_text, overview])
+            return float(cosine_similarity(vecs[0], vecs[1])[0][0])
+        except Exception as e:
+            print(f"[TFIDF] Similarity computation failed, using fallback: {e}")
+    return _keyword_overlap(pitch_words, overview)
 
 # ── TMDB keyword ID lookup ─────────────────────────────────────────────
 def _lookup_keyword_ids(words):
@@ -497,6 +632,141 @@ def _lookup_keyword_ids(words):
         except Exception:
             pass
     return ids
+
+# ── TMDB per-word movie search ─────────────────────────────────────────
+def _search_movie_multi(words, extra_params=None, per_word_limit=8, timeout=6):
+    """
+    Issues one TMDB /search/movie call PER word instead of one combined multi-word
+    query. TMDB's search endpoint matches primarily against movie TITLES (it does not
+    do full-text plot search), so a long abstract phrase like "factory owner successor
+    poverty discovery" almost never matches any real title and returns nothing — even
+    when a strong match exists (e.g. "Charlie and the Chocolate Factory" for a
+    toy-factory-succession pitch never gets found by that combined phrase, but a search
+    on "factory" alone has a real chance of surfacing it). This trades a few extra API
+    calls for meaningfully better recall on exactly the pitches that need it most —
+    ones whose anchor words are abstract/thematic rather than literal title words.
+    Returns {tmdb_id: (matched_word, result_dict)}, deduplicated across words.
+    """
+    found = {}
+    for w in words:
+        if not w or len(w) < 4:
+            continue
+        try:
+            params = {"api_key": TMDB_API_KEY, "query": w, "language": "en-US", "page": 1}
+            if extra_params: params.update(extra_params)
+            r = requests.get(f"{TMDB_BASE}/search/movie", params=params, timeout=timeout)
+            for res in r.json().get("results", [])[:per_word_limit]:
+                rid = res.get("id")
+                if rid and rid not in found:
+                    found[rid] = (w, res)
+        except Exception as e:
+            print(f"[Search] '{w}' failed: {e}")
+    return found
+
+# ── Groq-suggested titles + TMDB verification ───────────────────────────
+def _groq_suggest_titles(pitch, theme, genres, scope, flavor, n=8):
+    """
+    Asks Groq for REAL, existing film titles similar to the pitch — this is the fix for
+    the core limitation of keyword/text-based retrieval: TMDB's own overview text often
+    shares almost no literal vocabulary with an abstract pitch even for a genuinely
+    strong match (e.g. "Charlie and the Chocolate Factory"'s overview talks about an
+    "eccentric candy manufacturer", not "toy factory owner" or "successor" — no keyword
+    search or overlap score can bridge that gap, but a model that has actually seen the
+    film can). This only asks for titles, never trusts any other claim the model makes
+    about them — every suggestion gets verified against real TMDB data before use, and
+    anything TMDB can't confirm is discarded (see _verify_tmdb_title).
+    """
+    scope_note = ("Filipino-produced films only (Tagalog/Filipino-language, made in the "
+                   "Philippines)" if scope == "filipino" else
+                   "films from any country, any language")
+    flavor_note = ("similar in PREMISE and PLOT MECHANICS — the core story setup" if flavor == "surface"
+                   else "similar in THEME, TONE, or EMOTIONAL SUBTEXT — not necessarily the same plot, "
+                        "but the same underlying feeling or question")
+    prompt = f"""You are a film-literate assistant helping a filmmaker find real reference films.
+
+Pitch: {pitch}
+Main theme: {theme}
+Genre(s): {', '.join(genres) if genres else 'unspecified'}
+
+List {n} REAL, ACTUALLY EXISTING films that are {flavor_note}.
+Scope: {scope_note}.
+
+CRITICAL: Only list films you are confident actually exist. Do not invent titles. If you
+are unsure whether a film is real, leave it out rather than guess.
+
+Return ONLY this JSON, no other text:
+{{"films": [{{"title": "exact film title", "year": 2020}}, ...]}}"""
+    try:
+        result = _call_groq(prompt, max_tokens=500, fast=False)
+        films = result.get("films", [])
+        return [(f.get("title","").strip(), f.get("year")) for f in films if f.get("title")]
+    except Exception as e:
+        print(f"[Groq-suggest] {scope}/{flavor} failed: {e}")
+        return []
+
+def _verify_tmdb_title(title, year=None, require_filipino=False, timeout=6):
+    """
+    Confirms a Groq-suggested title actually exists on TMDB and fetches its real
+    metadata — this is what prevents hallucinated titles from ever reaching the user.
+    If require_filipino, also confirms the match is actually Filipino (original
+    language tl/fil or origin country PH); Groq's sense of "Filipino film" isn't
+    trusted any more than its plot claims are.
+    """
+    try:
+        params = {"api_key": TMDB_API_KEY, "query": title, "language": "en-US", "page": 1}
+        r = requests.get(f"{TMDB_BASE}/search/movie", params=params, timeout=timeout)
+        results = r.json().get("results", [])
+        if not results:
+            return None
+        candidate = None
+        if year:
+            for res in results:
+                rd = res.get("release_date", "")
+                if rd and rd[:4] == str(year):
+                    candidate = res; break
+        if not candidate:
+            # Fall back to closest title match rather than blindly taking result[0]
+            tl = title.lower().strip()
+            for res in results:
+                if res.get("title","").lower().strip() == tl:
+                    candidate = res; break
+            candidate = candidate or results[0]
+        if require_filipino:
+            lang = candidate.get("original_language", "")
+            origin_ok = lang in ("tl", "fil")
+            if not origin_ok:
+                # original_language alone can be wrong/missing for some entries — check
+                # production countries as a second signal before rejecting
+                try:
+                    rd = requests.get(f"{TMDB_BASE}/movie/{candidate['id']}",
+                                       params={"api_key": TMDB_API_KEY}, timeout=4).json()
+                    countries = [c.get("iso_3166_1") for c in rd.get("production_countries", [])]
+                    origin_ok = "PH" in countries
+                except Exception:
+                    pass
+            if not origin_ok:
+                return None
+            # Some legitimately Filipino TMDB entries don't have original_language set to
+            # tl/fil in the search response itself (only visible via the detail-endpoint
+            # production_countries check above) — tag explicitly so downstream is_filipino
+            # detection (which checks origin_country) doesn't miss a film we just verified.
+            candidate["origin_country"] = "PH"
+        return candidate
+    except Exception as e:
+        print(f"[Verify] '{title}' failed: {e}")
+        return None
+
+def _groq_candidates(pitch, theme, genres, scope, flavor, exclude_ids=None, n=8):
+    """Combines _groq_suggest_titles + _verify_tmdb_title into ready-to-score candidates."""
+    exclude_ids = exclude_ids or set()
+    suggestions = _groq_suggest_titles(pitch, theme, genres, scope, flavor, n=n)
+    out = {}
+    for title, year in suggestions:
+        res = _verify_tmdb_title(title, year, require_filipino=(scope == "filipino"))
+        if res and res.get("id") and res["id"] not in exclude_ids:
+            out[res["id"]] = {"source": "groq_suggest", "query_rank": 0, "result": res}
+    print(f"[Groq-suggest] {scope}/{flavor}: {len(suggestions)} suggested, {len(out)} verified on TMDB")
+    return out
 
 # ── Cinematic noun detector ────────────────────────────────────────────
 CINEMATIC_NOUNS = {
@@ -557,15 +827,55 @@ STOP_WORDS = {
 }
 
 def _extract_anchor_words(pitch, theme, genres):
+    """
+    Extracts anchor nouns from a pitch to drive keyword/search-based film
+    matching. Previously this only matched words against a fixed ~150-word
+    CINEMATIC_NOUNS list, so any pitch whose key nouns weren't hand-curated
+    into that list got zero anchors and zero relevant results — e.g. "a toy
+    factory owner picks a successor" matches nothing in that list even though
+    "factory" and "successor" are exactly the anchors a human would pick.
+
+    Now: NLTK POS-tags the pitch, pulls out all nouns (not just pre-listed
+    ones), and ranks them by rarity against the trained dataset's vocabulary
+    (rarer nouns are more specific, more useful search anchors than common
+    ones). If NLTK or its data packages aren't available at runtime, this
+    falls back to the original CINEMATIC_NOUNS matching so the app still
+    works, just with the old, narrower behavior.
+    """
     raw   = (pitch + " " + theme).lower()
     raw   = re.sub(r"[^a-z0-9 ]", " ", raw)
     words = [w for w in raw.split() if len(w) > 3 and w not in STOP_WORDS]
     seen, unique = set(), []
     for w in words:
         if w not in seen: seen.add(w); unique.append(w)
-    anchors = [w for w in unique if w in CINEMATIC_NOUNS]
-    fillers = [w for w in unique if w not in CINEMATIC_NOUNS]
-    return anchors, fillers
+
+    nouns = []
+    if NLTK_AVAILABLE:
+        try:
+            tagged     = pos_tag(word_tokenize(pitch + " " + theme))
+            noun_tags  = {"NN", "NNS", "NNP", "NNPS"}
+            seen_nouns = set()
+            for word, tag in tagged:
+                wl = re.sub(r"[^a-z0-9]", "", word.lower())
+                if (tag in noun_tags and len(wl) > 3
+                        and wl not in STOP_WORDS and wl not in seen_nouns):
+                    seen_nouns.add(wl)
+                    nouns.append(wl)
+        except Exception as e:
+            print(f"[Anchor] NLTK POS tagging failed, using fallback: {e}")
+            nouns = []
+
+    if not nouns:
+        # Fallback: original fixed-list behavior
+        nouns = [w for w in unique if w in CINEMATIC_NOUNS]
+
+    if nouns:
+        # Rank by rarity in the trained dataset's vocabulary (unseen/rare terms
+        # sort first — treated as maximally rare via a large default).
+        nouns = sorted(nouns, key=lambda w: _VOCAB_FREQ.get(w, 10**9))
+
+    fillers = [w for w in unique if w not in nouns]
+    return nouns, fillers
 
 # ── Main hybrid similar-film search ───────────────────────────────────
 def get_similar_films_hybrid(form_data):
@@ -995,6 +1305,86 @@ def get_ai_analysis(film_data, similar_films, success_rate, ml_ready,
     return analysis
 
 
+def get_budget_recommendation(film_data, similar_films, sub_factors):
+    """
+    Groq call that generates a budget recommendation based on:
+    - User's genre, tone, purpose, distribution goal, market scope
+    - The financial sub-metric score and the budget they entered (or lack thereof)
+    - Budget patterns visible in the gathered similar films
+    Returns a dict with: recommended_range, rationale, comparable_film_budgets, caveats
+    """
+    genres       = as_list(film_data.get("genre"))
+    tones        = as_list(film_data.get("tone"))
+    purposes     = as_list(film_data.get("film_purpose", []))
+    distribution = as_list(film_data.get("distribution_goal", []))
+    market_scope = film_data.get("market_scope", "international")
+    budget_given = film_data.get("budget_range", "")
+    casting      = as_list(film_data.get("casting_category", []))
+    schedule     = film_data.get("production_schedule", "")
+    pitch_short  = film_data.get("story_pitch", "")[:80]
+    theme        = film_data.get("main_theme", "")
+
+    fin_score    = sub_factors["financial"]["score"]
+    genre_label  = normalize(film_data.get("genre"))
+    market_label = film_data.get("_market_label", "International market")
+
+    # Build a reference list of similar films to give Groq context on what comparable projects cost
+    film_lines = []
+    for f in (similar_films or [])[:6]:
+        film_lines.append(
+            f"- \"{f['title']}\" ({f['release_date']}) ★{f['vote_average']}"
+        )
+    films_block = "\n".join(film_lines) if film_lines else "No comparable films available."
+
+    budget_context = (
+        f"User's stated budget: {budget_given}" if budget_given
+        else "User has NOT specified a budget yet."
+    )
+
+    market_note = {
+        "international": "Target market is International. Budget norms follow Hollywood/global indie benchmarks.",
+        "filipino":      "Target market is the Philippine local market. Budget norms are significantly lower — mainstream Filipino films typically run PHP 10M–150M (~$200K–$3M USD). Blockbuster budgets are not viable for local-only release.",
+        "mixed":         "Target market is both Philippine local and International. Recommend a budget range that is viable for both contexts.",
+    }.get(market_scope, "")
+
+    prompt = (
+        "You are a film finance consultant. Give a direct, data-grounded budget recommendation.\n"
+        "No filler phrases. No 'it depends'. Give a concrete recommended range and why.\n\n"
+        f"PITCH: {pitch_short}\n"
+        f"Theme: {theme} | Genre: {genre_label} | Tone: {normalize(film_data.get('tone'))}\n"
+        f"Purpose: {normalize(purposes, 'unspecified')} | Distribution: {normalize(distribution, 'unspecified')}\n"
+        f"Casting level: {normalize(casting, 'unspecified')} | Schedule: {schedule or 'unspecified'}\n"
+        f"Market: {market_label}\n"
+        f"{market_note}\n"
+        f"{budget_context}\n"
+        f"Financial success score: {fin_score}% (score reflects how well current budget fits genre/purpose)\n\n"
+        f"COMPARABLE FILMS FOUND:\n{films_block}\n\n"
+        "Based on all of the above, output valid JSON only:\n"
+        '{"recommended_range":"one of: Micro (<$1M) | Low ($1M-$10M) | Mid ($10M-$50M) | High ($50M-$150M) | Blockbuster ($150M+)",'
+        '"rationale":"2-3 sentences: why this range fits the genre+purpose+market, referencing the financial score",'
+        '"comparable_film_budgets":"1 sentence noting what comparable films in the list typically cost or what that implies",'
+        '"caveats":"1 sentence on the biggest financial risk or constraint to watch"}'
+    )
+
+    defaults = {
+        "recommended_range": "",
+        "rationale": "",
+        "comparable_film_budgets": "",
+        "caveats": ""
+    }
+
+    try:
+        result = _call_groq(prompt, max_tokens=400, fast=False)
+        for k, v in defaults.items():
+            if k not in result or result[k] is None:
+                result[k] = v
+        print("[Groq] Budget recommendation call success")
+        return result
+    except Exception as e:
+        print(f"[Groq] Budget recommendation call failed: {e}")
+        return defaults
+
+
 def get_story_advice(film_data, similar_films=None, success_rate=None, sub_factors=None):
     """
     Story consultant Groq call — honest creative feedback on the pitch.
@@ -1351,6 +1741,11 @@ def get_surface_films(form_data, scope="international"):
                     except Exception as e:
                         print(f"[Surface-PH] lang={lang_code} sort={sort_by} p{page} failed: {e}")
 
+        # Groq-suggested titles pass — fixes the core limitation above: a genuinely
+        # strong Filipino match can have an overview that shares almost no literal
+        # vocabulary with the pitch. Verified against real TMDB data before use.
+        candidates.update(_groq_candidates(pitch, theme, genres, "filipino", "surface", n=8))
+
         print(f"[Surface-filipino] {len(candidates)} candidates before adult filter")
         ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
         ph_only = [f for f in ranked if f.get("is_filipino")]
@@ -1391,15 +1786,16 @@ def get_surface_films(form_data, scope="international"):
             except Exception as e:
                 print(f"[Surface-intl] KW pass failed: {e}")
 
-    # Pass 2: text search
-    clean_q = " ".join(w for w in surface_q.split() if w.lower() not in known_genres_lower)
-    if clean_q.strip():
+    # Pass 2: text search — one query PER anchor word/filler, not one combined phrase.
+    # TMDB's /search/movie matches primarily against titles; a multi-word abstract
+    # phrase like "factory owner successor poverty" almost never matches a real title.
+    search_words = [w for w in surface_q_parts if w.lower() not in known_genres_lower][:4]
+    if search_words:
         try:
-            params = {"api_key":TMDB_API_KEY,"query":clean_q,"language":"en-US","page":1}
-            r = requests.get(f"{TMDB_BASE}/search/movie", params=params, timeout=6)
-            for res in r.json().get("results",[])[:12]:
-                if res.get("id") and res.get("vote_count",0)>=10 and res["id"] not in candidates:
-                    candidates[res["id"]] = {"source":"search","query_rank":1,"result":res}
+            found = _search_movie_multi(search_words, per_word_limit=8)
+            for rid, (w, res) in found.items():
+                if res.get("vote_count",0) >= 10 and rid not in candidates:
+                    candidates[rid] = {"source":"search","query_rank":1,"result":res}
         except Exception as e:
             print(f"[Surface-intl] Search failed: {e}")
 
@@ -1415,6 +1811,11 @@ def get_surface_films(form_data, scope="international"):
                 candidates[res["id"]] = {"source":"discover","query_rank":99,"result":res}
     except Exception as e:
         print(f"[Surface-intl] Discover failed: {e}")
+
+    # Pass 4: Groq-suggested titles, TMDB-verified — see _groq_candidates for why this
+    # exists: keyword/text retrieval structurally cannot find matches whose overviews
+    # don't share literal vocabulary with the pitch, no matter how the query is built.
+    candidates.update(_groq_candidates(pitch, theme, genres, "international", "surface", n=8))
 
     return _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
 
@@ -1436,6 +1837,47 @@ def get_deep_films(form_data, scope="international", exclude_ids=None):
     # ── FILIPINO SCOPE: only search Filipino-language films ───────────
     if scope == "filipino":
         candidates = {}
+
+        # Trained-model pass (mirrors the international branch below): query knn_model with
+        # a Filipino-aware vector (is_filipino=1) and only accept neighbors that are
+        # ACTUALLY Filipino-flagged in film_db. Without this, Filipino-deep mode relied
+        # purely on a TMDB discover call sorted by rating/popularity with NO relevance
+        # filtering — it could only ever surface whatever's highest-rated in Tagalog
+        # overall, regardless of the pitch, which is what let totally unrelated films
+        # (e.g. a kids' fantasy-comedy, a 1970s historical drama) get forced into results
+        # once nothing better existed in that unfiltered pool. This gives Filipino scope
+        # the same trained-model relevance signal international scope already had.
+        if ML_READY:
+            try:
+                vec        = build_feature_vector(form_data, is_filipino=True)
+                vec_scaled = scaler.transform(vec)
+                # Ask for more neighbors than needed since most of film_db is international —
+                # we filter down to is_filipino==1 rows after retrieval.
+                distances, indices = knn_model.kneighbors(vec_scaled, n_neighbors=200)
+                for dist, idx in zip(distances[0], indices[0]):
+                    row = film_db.iloc[idx]
+                    if not int(row.get("is_filipino", 0)):
+                        continue
+                    tid = int(row.get("tmdb_id", 0))
+                    if tid and tid not in candidates and tid not in exclude_ids:
+                        fake = {
+                            "id":           tid,
+                            "title":        str(row.get("title","")),
+                            "overview":     str(row.get("overview","")),
+                            "vote_average": float(row.get("vote_average",0)),
+                            "vote_count":   500,
+                            "release_date": str(row.get("release_date","")),
+                            "poster_path":  row.get("poster_path",""),
+                            "genre_ids":    [],
+                            "original_language": "tl",
+                            "popularity":   20,
+                        }
+                        candidates[tid] = {"source":"knn","query_rank":0,"result":fake}
+                        if len(candidates) >= 15:
+                            break
+            except Exception as e:
+                print(f"[Deep-PH] KNN pass failed: {e}")
+
         for lang_code in ("tl", "fil"):
             for sort_by in ("vote_average.desc", "popularity.desc", "primary_release_date.desc"):
                 for page in (1, 2, 3):
@@ -1459,6 +1901,10 @@ def get_deep_films(form_data, scope="international", exclude_ids=None):
                             break
                     except Exception as e:
                         print(f"[Deep-PH] lang={lang_code} sort={sort_by} p{page} failed: {e}")
+
+        candidates.update(_groq_candidates(pitch, theme, genres, "filipino", "deep",
+                                            exclude_ids=exclude_ids, n=8))
+
         print(f"[Deep-filipino] {len(candidates)} candidates before adult filter")
         ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
         ph_only = [f for f in ranked if f.get("is_filipino")]
@@ -1543,6 +1989,9 @@ def get_deep_films(form_data, scope="international", exclude_ids=None):
         except Exception as e:
             print(f"[Deep] Discover fallback failed: {e}")
 
+    candidates.update(_groq_candidates(pitch, theme, genres, "international", "deep",
+                                        exclude_ids=exclude_ids, n=8))
+
     return _score_and_rank(candidates, form_data, pitch, theme, n=6)
 
 
@@ -1555,24 +2004,110 @@ ADULT_KEYWORDS_FILTER = {
     "sexually explicit","graphic sex","graphic nudity","sexual violence",
     "stripper","prostitut","escort","brothel","mistress","concubine","porno","porn",
     "one night stand","hook up","hookup","seductress","temptress",
-    "lust","lustful","carnal","sensual encounter","sexual affair",
-    "sex scene","sex worker","call girl","gigolo","sugar daddy",
+    "lustful","carnal","sensual encounter","sexual affair",
+    "sex scene","sex worker","call girl","gigolo","sugar daddy","sugar baby",
     # Filipino/Tagalog explicit terms that appear in TMDB titles/overviews
     "bold","boldstar","bold film","bold movie","bomba","tagalog bold",
     "pampagana","kalibugan","maselan","malibog","libog",
     "sabik","mainit","pakikiapid","kaapid","kerida","kabit",
     "bold star","hubad","telenovela bold","sexy film","sexy movie",
     "sexy star","star cinema bold","viva bold","regal bold",
+    # Expanded (validated against the real 267-film TMDB Filipino fetch — see retraining
+    # notebook for the same logic and the false-positive testing behind it):
+    "sex","sexual","seduc","threesome","foursome","orgy","nympho",
+    "massage parlor","kept woman","sex slave","sexually abused","sexually assaulted",
+    "extramarital","infidelity","sex swap","sex games","sex acts",
+    "making love","lovemaking","sexual fantasy","sexual relationship",
+    "sexual satisfaction","selling her body","explore their bodies",
+    "explore her body","companion of a wealthy","uses her body","scorpio nights",
 }
+
+# Ambiguous words have legitimate everyday non-sexual uses ("ambitions and passions",
+# "desire to succeed") so they only flag the film when they co-occur with explicit/illicit
+# context — a bare-word match against ADULT_KEYWORDS_FILTER would have wrongly excluded
+# real, relevant films (confirmed empirically: "On the Job"'s overview uses "ambitions and
+# passions" non-sexually and was a false positive before this fix was added).
+ADULT_CONTEXT_PAIRS = [
+    (r"\baffair\b",     r"steamy|illicit|secret|forbidden"),
+    (r"\bdesire\b",     r"sexual|carnal|forbidden|illicit"),
+    (r"\blust\b",       r"temptation|forbidden|illicit"),
+    (r"\bpassion\b",    r"forbidden|illicit|steamy|secret affair"),
+    (r"\btemptation\b", r"flesh|forbidden|illicit"),
+    (r"\bsteamy\b",     r""),  # steamy alone is unambiguous enough in film-overview context
+]
 
 # Vivamax/VMX TMDB company ID — known adult content producer
 # Source: https://www.themoviedb.org/company/149142-vivamax
 VIVAMAX_COMPANY_IDS = {149142}
 VIVAMAX_NETWORK_IDS = {4569}
 
+# Explicit title blocklist — Filipino films that must never appear in results
+BLOCKED_TITLES = {
+    "gameboys",
+    "serbis", "service",
+    "daybreak",
+    "antonio's secret",
+    "the masseur",
+    "no way out",
+    "heavenly touch",
+    "fuccbois",
+    "tirador",
+    "laman ekis",
+    "segurista",
+    "private show",
+    "burlesk queen",
+    "boatman",
+    "scorpio nights 2",
+    "takaw-tukso",
+    "tuhog",
+    "scorpio nights",
+    "scorpio nights 3",
+    "ang kabit ni mrs. montero",
+    "totoy mola",
+    "anakan mo ako",
+    "ang magsasaging ni pacing",
+    "arayyyy!",
+    "balahibong pusa",
+    "batuta ni dracula",
+    "bibingka: apoy sa ilalim, apoy sa ibabaw",
+    "diligin ng suka ang uhaw na lumpia",
+    "itlog",
+    "kainan sa highway",
+    "kangkong",
+    "kapag ang palay naging bigas…may bumayo",
+    "kapag ang palay naging bigas may bumayo",
+    "kesong puti",
+    "masarap na pugad",
+    "masikip mainit paraisong parisukat",
+    "masarap habang mainit",
+    "matamis hanggang dulo",
+    "'pag dumikit kumakapit",
+    "pag dumikit kumakapit",
+    "pagsaluhan",
+    "patikim ng pinya",
+    "pila balde",
+    "talong",
+    "rigodon",
+    # Title-only signal: some entries have a fully sanitized overview that reveals nothing
+    # about actual content (e.g. "Nympho": "A woman seeking excitement meets a man who
+    # brings light and meaning to her world." — only the title signals what it really is).
+    "nympho","xxx","virgin","bomba","macho dancer",
+}
+
 def _is_adult_content(result):
-    """Returns True if this film appears to be adult/sexual content."""
+    """Returns True if this film appears to be adult/sexual content, or has sexual content
+    as its plot's core focus. Per explicit content policy, this is intentionally aggressive —
+    it also excludes internationally respected films centered on sexual/exploitation themes
+    (e.g. Macho Dancer, Serbis), not just exploitative content."""
     if result.get("adult"): return True
+
+    # Block by explicit title blocklist (case-insensitive)
+    title_lower = (result.get("title") or "").lower().strip()
+    orig_title_lower = (result.get("original_title") or "").lower().strip()
+    if title_lower in BLOCKED_TITLES or orig_title_lower in BLOCKED_TITLES:
+        return True
+    if any(flag in title_lower for flag in ("nympho","xxx","virgin","scorpio nights","bold","bomba")):
+        return True
 
     # Block Vivamax/VMX productions by TMDB company ID
     for co in (result.get("production_companies") or []):
@@ -1586,9 +2121,16 @@ def _is_adult_content(result):
     title    = (result.get("title") or "").lower()
     text     = overview + " " + title
 
-    # Check keyword list
+    # Check keyword list (unambiguous terms — always flag on match)
     for kw in ADULT_KEYWORDS_FILTER:
         if kw in text: return True
+
+    # Context-aware check for ambiguous words (only flag when paired with explicit context —
+    # see ADULT_CONTEXT_PAIRS comment for why bare-word matching caused false positives)
+    for word_pat, context_pat in ADULT_CONTEXT_PAIRS:
+        if re.search(word_pat, text):
+            if context_pat == "" or re.search(context_pat, text):
+                return True
 
     # Filipino adult films often have NO overview and only Romance/Drama genre
     # with suspiciously low vote counts
@@ -1607,6 +2149,14 @@ def _is_adult_content(result):
 
     return False
 
+SIMILARITY_FLOOR = 45  # Candidates scoring below this are dropped rather than padding
+                        # results with weak/unrelated films. Calibrated against real score
+                        # distributions from the trained dataset. If fewer than 3 candidates
+                        # survive the floor, we fall back to the best-available (unfiltered)
+                        # results instead of returning too few/no matches — this was verified
+                        # not to wrongly zero out common, well-covered pitches (e.g. foster-care
+                        # stories), which score comfortably above the floor.
+
 def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=True):
     """Shared scoring + ranking logic for both surface and deep film searches."""
     pitch_words = [w for w in re.sub(r"[^a-z0-9 ]"," ",(pitch+" "+theme).lower()).split()
@@ -1614,26 +2164,60 @@ def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=Tr
     scored = []
     for cand in candidates.values():
         r          = cand["result"]
+        # Content-safety chokepoint: every candidate from every source/scope passes through
+        # here before becoming a final result, so this is the single correct place to apply
+        # the adult-content filter. Previously _is_adult_content existed but was only called
+        # from get_similar_films_hybrid, a function never used by the live /analyze pipeline —
+        # meaning NO adult-content filtering actually ran on real results despite the function
+        # being fully built. This wires it into the path that's actually used.
+        if _is_adult_content(r):
+            continue
         overview   = r.get("overview","")
         source     = cand["source"]
         query_rank = cand.get("query_rank", 99)
 
-        knn_sim   = _knn_score_single(r, form_data)
-        sem_score = _keyword_overlap(pitch_words, overview)
+        knn_sim = _knn_score_single(r, form_data)
 
-        if source == "keyword": sem_score = min(1.0, sem_score + 0.55)
-        elif source == "knn":   sem_score = min(1.0, sem_score + 0.30)
-        elif source == "search":
-            sem_score = min(1.0, sem_score + (0.35 if query_rank == 0 else 0.20))
-        elif source == "discover" and sem_score < 0.05:
-            continue
+        if source == "groq_suggest":
+            # Groq was asked specifically "what real films are similar to this pitch" —
+            # that's a semantic judgment call the floor below can't replicate (a genuinely
+            # perfect match's TMDB overview often shares almost no literal vocabulary with
+            # an abstract pitch — e.g. "eccentric candy manufacturer" vs "toy factory
+            # owner"). The floor exists to catch UNJUDGED, blindly-retrieved candidates;
+            # these already had judgment applied and were independently verified to exist
+            # on TMDB (see _verify_tmdb_title), so they skip straight to a flat relevance
+            # credit rather than being punished for low text overlap.
+            sem_score = 0.75
+        else:
+            raw_sem = _semantic_similarity(pitch_words, pitch + " " + theme, overview)
+
+            RAW_OVERLAP_FLOOR = 0.12           # minimum genuine relevance required, any source.
+                                                 # Was 0.03 — too permissive: a single stray shared
+                                                 # word in a long overview (e.g. "self", "discovers")
+                                                 # was enough to pass, which is how weakly/coincidentally
+                                                 # matched Filipino films (Gasping for Air, etc.) kept
+                                                 # leaking into results for unrelated pitches even after
+                                                 # the source-bonus fix. This requires real, multi-word
+                                                 # or strong single-concept overlap, not noise.
+            KEYWORD_FLOOR      = 0.05           # TMDB keyword-ID matches carry some inherent
+                                                 # thematic evidence even at lower text overlap,
+                                                 # so they get a lower bar — but still a real one,
+                                                 # not a free pass (was 0.01).
+            floor = KEYWORD_FLOOR if source == "keyword" else RAW_OVERLAP_FLOOR
+            if raw_sem < floor:
+                continue
+
+            SOURCE_BOOST = {"keyword": 1.6, "knn": 1.35, "search": 1.3, "discover": 1.0}
+            boost        = SOURCE_BOOST.get(source, 1.0)
+            if source == "search" and query_rank != 0:
+                boost = 1.15
+            sem_score = min(1.0, raw_sem * boost)
 
         vote_avg      = r.get("vote_average", 0)
         quality_bonus = 5 if vote_avg >= 7.5 else (2 if vote_avg >= 6.0 else 0)
         combined      = round(0.65 * (sem_score * 100) + 0.35 * knn_sim + quality_bonus, 2)
 
-        sentences = re.split(r"(?<=[.!?])\s+", overview.strip())
-        plot      = sentences[0] if sentences else overview[:120]
+        plot = overview.strip()
 
         poster_path = r.get("poster_path","")
         scored.append({
@@ -1650,13 +2234,25 @@ def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=Tr
         })
 
     scored.sort(key=lambda x: x["similarity"], reverse=True)
-    seen, final = set(), []
-    for film in scored:
-        if film["title"] not in seen:
-            seen.add(film["title"])
-            final.append(film)
-        if len(final) >= n:
-            break
+
+    def _dedupe_top(films, apply_floor):
+        seen, out = set(), []
+        for film in films:
+            if apply_floor and film["similarity"] is not None and film["similarity"] < SIMILARITY_FLOOR:
+                continue
+            if film["title"] not in seen:
+                seen.add(film["title"])
+                out.append(film)
+            if len(out) >= n:
+                break
+        return out
+
+    final = _dedupe_top(scored, apply_floor=True)
+
+    if len(final) < 3:
+        print(f"[Ranked] Only {len(final)} passed the {SIMILARITY_FLOOR} floor — falling back to best-available")
+        final = _dedupe_top(scored, apply_floor=False)
+
     print(f"[Ranked] Top {len(final)}: {[f['title'] for f in final]}")
     return final
 
@@ -1719,6 +2315,15 @@ def get_all_film_reasons(film_data, intl_surface=None, intl_deep=None, ph_surfac
                 raw = result.get("film_reasons", {})
                 for k, v in raw.items():
                     title = k.split("|")[-1].strip() if "|" in k else k.strip()
+                    # Groq occasionally nests the answer under a sub-key instead of
+                    # returning plain text directly (more likely on small chunks where
+                    # the small fast model's output format gets less consistent). Without
+                    # this check, a dict value gets stored as-is and the frontend renders
+                    # it as the literal string "[object Object]" instead of real text.
+                    if isinstance(v, dict):
+                        v = " ".join(str(x) for x in v.values() if isinstance(x, (str, int, float))) or ""
+                    elif not isinstance(v, str):
+                        v = str(v) if v is not None else ""
                     out[title] = v
                 print(f"[Groq] {group_label} chunk {chunk_start//3+1}: {len(raw)} reasons")
             except Exception as e:
@@ -1732,10 +2337,6 @@ def get_all_film_reasons(film_data, intl_surface=None, intl_deep=None, ph_surfac
     all_reasons.update(_fetch_group_reasons(ph_deep      or [], deep_openers,    "ph_deep"))
     print(f"[Groq] Total reasons collected: {len(all_reasons)}")
     return all_reasons
-
-@app.route("/")
-def index():
-    return render_template("index.html")
 
 @app.route("/ml_status")
 def ml_status():
@@ -1849,27 +2450,67 @@ def analyze():
         sub_factors=sub_factors
     )
 
+    budget_recommendation = get_budget_recommendation(
+        data,
+        similar_films=analysis_films,
+        sub_factors=sub_factors
+    )
+
     return jsonify({
-        "intl_surface":  intl_surface,
-        "intl_deep":     intl_deep,
-        "ph_surface":    ph_surface,
-        "ph_deep":       ph_deep,
-        "intl_films":    intl_films,
-        "ph_films":      ph_films,
-        "similar_films": intl_films,
-        "market_scope":  market_scope,
-        "wants_profit":  wants_profit,
-        "success_rate":  success_rate,
-        "sub_scores":    sub_scores,
-        "ai_analysis":   ai_analysis,
-        "sub_reasons":   sub_reasons,
-        "method":        method,
-        "story_advice":  story_advice
+        "intl_surface":         intl_surface,
+        "intl_deep":            intl_deep,
+        "ph_surface":           ph_surface,
+        "ph_deep":              ph_deep,
+        "intl_films":           intl_films,
+        "ph_films":             ph_films,
+        "similar_films":        intl_films,
+        "market_scope":         market_scope,
+        "wants_profit":         wants_profit,
+        "success_rate":         success_rate,
+        "sub_scores":           sub_scores,
+        "ai_analysis":          ai_analysis,
+        "sub_reasons":          sub_reasons,
+        "method":               method,
+        "story_advice":         story_advice,
+        "budget_recommendation": budget_recommendation
     })
   except Exception as e:
     import traceback
     print("[ERROR in /analyze]:", traceback.format_exc())
     return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+# ── Serve the built Vue frontend (same-origin deploy) ───────────────────
+# Assumes a project layout of:
+#   app.py
+#   frontend/
+#     dist/            <- created by `npm run build` in your Vue project
+#       index.html
+#       assets/...
+# Adjust FRONTEND_DIST below if your Vue project's build output lives elsewhere.
+# This is registered LAST and only handles paths not already matched by a more
+# specific route above (/analyze, /auth/*, /ml_status, etc.) — Flask/Werkzeug
+# always prefers the most specific matching rule regardless of registration
+# order, but keeping it last here matches the conventional pattern.
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+@app.route("/")
+def index():
+    return send_from_directory(FRONTEND_DIST, "index.html")
+
+@app.route("/<path:path>")
+def serve_frontend(path):
+    """
+    Serves built Vue static assets (JS/CSS/images) directly when the requested
+    path matches a real file, and falls back to index.html otherwise — this is
+    what makes Vue Router's client-side routes (e.g. /dashboard, /saved-results)
+    work correctly on a hard refresh or a direct link, instead of 404ing, since
+    the server doesn't actually have a route for those paths — Vue Router
+    handles them entirely in the browser once index.html loads.
+    """
+    full_path = os.path.join(FRONTEND_DIST, path)
+    if path and os.path.isfile(full_path):
+        return send_from_directory(FRONTEND_DIST, path)
+    return send_from_directory(FRONTEND_DIST, "index.html")
 
 if __name__ == "__main__":
     app.run(debug=True)
