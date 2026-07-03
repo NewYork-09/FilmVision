@@ -8,7 +8,7 @@ const openAuthModal  = inject('openAuthModal',  () => {})
 onMounted(() => {
   // Point to Flask backend. Set VITE_API_URL in your .env file to override.
   // e.g. VITE_API_URL=http://localhost:5000
-  window.FILMVISION_API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+  window.FILMVISION_API = import.meta.env.VITE_API_URL || ''
   // Expose to global scope so the vanilla-JS analyze() can read auth state
   window._fvGetCurrentUser = () => currentUser?.value || null
   window._fvOpenAuthModal  = () => openAuthModal()
@@ -831,7 +831,7 @@ export default {
   methods: {
     async _fetchSavedList() {
       const user = typeof window._fvGetCurrentUser === 'function' ? window._fvGetCurrentUser() : null;
-      const API = window.FILMVISION_API || 'http://localhost:5000';
+      const API = window.FILMVISION_API || '';
       // If Vue reactive ref hasn't hydrated yet (e.g. on refresh), check session directly
       if (!user) {
         try {
@@ -848,7 +848,7 @@ export default {
       } catch (_) {}
     },
     async loadSavedResult(id) {
-      const API = window.FILMVISION_API || 'http://localhost:5000';
+      const API = window.FILMVISION_API || '';
       try {
         const res  = await fetch(`${API}/auth/saved_result/${id}`, { credentials: 'include' });
         const data = await res.json();
@@ -950,7 +950,7 @@ export default {
       } catch (_) {}
     },
     async deleteSavedResult(id) {
-      const API = window.FILMVISION_API || 'http://localhost:5000';
+      const API = window.FILMVISION_API || '';
       try {
         await fetch(`${API}/auth/delete_result/${id}`, { method: 'DELETE', credentials: 'include' });
         this.savedList = this.savedList.filter(r => r.id !== id);

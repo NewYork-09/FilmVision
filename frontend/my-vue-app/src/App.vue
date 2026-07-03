@@ -241,7 +241,7 @@ onMounted(() => window.addEventListener('scroll', handleScroll))
 onUnmounted(() => window.removeEventListener('scroll', handleScroll))
 
 // ── Auth state ─────────────────────────────────────────────────────────
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API = import.meta.env.VITE_API_URL || ''
 
 const currentUser = ref(null)
 const showModal   = ref(false)
