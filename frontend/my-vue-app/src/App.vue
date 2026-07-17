@@ -44,6 +44,13 @@
     <router-view />
   </main>
 
+  <!-- ── MOBILE / TABLET BLOCKER ─────────────────────────────────────── -->
+  <div class="mobile-block-screen">
+    <img src="@/assets/logo.png" alt="FilmVision" class="mobile-block-logo" />
+    <h2 class="mobile-block-title">Your next blockbuster deserves a bigger screen.</h2>
+    <p class="mobile-block-text">Experience predictive insights, creative inspiration, and AI-powered guidance on desktop and laptop while we build the next chapter for mobile.</p>
+  </div>
+
   <!-- ── AUTH MODAL ──────────────────────────────────────────────────── -->
   <Teleport to="body">
     <div v-if="showModal" class="auth-overlay" @mousedown.self="closeModal">
@@ -241,7 +248,7 @@ onMounted(() => window.addEventListener('scroll', handleScroll))
 onUnmounted(() => window.removeEventListener('scroll', handleScroll))
 
 // ── Auth state ─────────────────────────────────────────────────────────
-const API = import.meta.env.VITE_API_URL || ''
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 const currentUser = ref(null)
 const showModal   = ref(false)
@@ -691,5 +698,57 @@ async function handleLogout() {
 .legal-content strong {
   color: #f0ece4;
   font-weight: 500;
+}
+
+/* ── MOBILE / TABLET BLOCKER ──────────────────────────────────────── */
+.mobile-block-screen {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .nav-container,
+  main {
+    display: none !important;
+  }
+
+  .mobile-block-screen {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: #0f0f0f;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    gap: 1.2rem;
+  }
+
+  .mobile-block-logo {
+    width: 150px;
+    height: auto;
+    opacity: 0.9;
+    margin-bottom: 0.4rem;
+  }
+
+  .mobile-block-title {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: #FFD700;
+    max-width: 320px;
+    line-height: 1.4;
+  }
+
+  .mobile-block-text {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 300;
+    color: #bcbcbc;
+    max-width: 300px;
+    line-height: 1.7;
+  }
 }
 </style>
