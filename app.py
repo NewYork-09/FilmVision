@@ -1098,15 +1098,28 @@ def fetch_industry_trends(genres, tone, theme):
 # ── Groq analysis ──────────────────────────────────────────────────────
 def _call_groq(prompt, max_tokens=1800, fast=False):
     """Single Groq call with retry logic. Returns parsed dict or raises.
-    fast=True uses llama-3.1-8b-instant (lower token cost, good for film reasons).
-    fast=False uses llama-3.3-70b-versatile (better quality, for main analysis).
+    fast=True uses openai/gpt-oss-20b (lower token cost, good for film reasons).
+    fast=False uses openai/gpt-oss-120b (better quality, for main analysis).
+    Groq deprecated llama-3.1-8b-instant and llama-3.3-70b-versatile on
+    June 17, 2026, recommending these exact replacements — see
+    https://console.groq.com/docs/deprecations
     """
     url     = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"}
-    model   = "llama-3.1-8b-instant" if fast else "llama-3.3-70b-versatile"
+    model   = "openai/gpt-oss-20b" if fast else "openai/gpt-oss-120b"
     payload = {"model": model,
                "messages":[{"role":"user","content":prompt}],
-               "temperature":0.7,"max_tokens":max_tokens}
+               "temperature":0.7,"max_completion_tokens":max_tokens,
+               "reasoning_effort":"low"}
+    # reasoning_effort=low: the gpt-oss models spend part of their token budget on
+    # hidden internal reasoning before writing the visible answer, and that hidden
+    # reasoning counts against BOTH max_completion_tokens and the per-minute rate
+    # limit — even though it's invisible in the output. None of this app's Groq
+    # calls need genuine multi-step reasoning (they're structured JSON extraction /
+    # short blurb-writing tasks), so keeping this low leaves more of the token
+    # budget for the actual visible output (reducing truncated/invalid JSON) and
+    # reduces total tokens burned per call (easing rate-limit pressure across the
+    # ~12-16 sequential calls one /analyze request makes).
     last_err = ""
     for attempt in range(3):
         try:
