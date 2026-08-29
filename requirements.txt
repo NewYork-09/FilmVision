@@ -8,3 +8,4 @@ numpy
 pandas
 nltk
 gunicorn
+psycopg2-binary
