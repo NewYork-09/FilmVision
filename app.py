@@ -696,13 +696,24 @@ are unsure whether a film is real, leave it out rather than guess.
 
 Return ONLY this JSON, no other text:
 {{"films": [{{"title": "exact film title", "year": 2020}}, ...]}}"""
-    try:
-        result = _call_groq(prompt, max_tokens=500, fast=False)
-        films = result.get("films", [])
-        return [(f.get("title","").strip(), f.get("year")) for f in films if f.get("title")]
-    except Exception as e:
-        print(f"[Groq-suggest] {scope}/{flavor} failed: {e}")
-        return []
+    # temperature=0.3: this is a factual-recall task ("name real films that exist"),
+    # not creative writing — the default 0.7 used elsewhere (for the "how it connects"
+    # blurbs, which benefit from variety) was causing real, observed inconsistency here:
+    # the identical prompt for the identical pitch returned 8 real suggestions one run
+    # and 0 the next, purely from sampling randomness. Lower temperature makes this
+    # call much more consistently non-empty without affecting any other Groq call.
+    for attempt in range(2):
+        try:
+            result = _call_groq(prompt, max_tokens=500, fast=False, temperature=0.3)
+            films = result.get("films", [])
+            if films:
+                return [(f.get("title","").strip(), f.get("year")) for f in films if f.get("title")]
+            print(f"[Groq-suggest] {scope}/{flavor}: got 0 films on attempt {attempt+1}, "
+                  f"{'retrying' if attempt == 0 else 'giving up'}")
+        except Exception as e:
+            print(f"[Groq-suggest] {scope}/{flavor} failed: {e}")
+            return []
+    return []
 
 def _verify_tmdb_title(title, year=None, require_filipino=False, timeout=6):
     """
@@ -761,11 +772,23 @@ def _groq_candidates(pitch, theme, genres, scope, flavor, exclude_ids=None, n=8)
     exclude_ids = exclude_ids or set()
     suggestions = _groq_suggest_titles(pitch, theme, genres, scope, flavor, n=n)
     out = {}
+    verified_titles = []
     for title, year in suggestions:
         res = _verify_tmdb_title(title, year, require_filipino=(scope == "filipino"))
         if res and res.get("id") and res["id"] not in exclude_ids:
             out[res["id"]] = {"source": "groq_suggest", "query_rank": 0, "result": res}
+            verified_titles.append(res.get("title", title))
     print(f"[Groq-suggest] {scope}/{flavor}: {len(suggestions)} suggested, {len(out)} verified on TMDB")
+    if suggestions:
+        # Full visibility into what Groq actually proposed and what TMDB rejected —
+        # aggregate counts alone can't answer "did it even suggest X" or "why didn't
+        # X show up", which otherwise requires guessing at which of three stages
+        # (suggestion / TMDB verification / relevance scoring) dropped a given film.
+        suggested_names = [t for t, y in suggestions]
+        rejected_names  = [t for t in suggested_names if t not in verified_titles]
+        print(f"[Groq-suggest] {scope}/{flavor} suggested: {suggested_names}")
+        if rejected_names:
+            print(f"[Groq-suggest] {scope}/{flavor} rejected by TMDB verify: {rejected_names}")
     return out
 
 # ── Cinematic noun detector ────────────────────────────────────────────
@@ -1096,7 +1119,7 @@ def fetch_industry_trends(genres, tone, theme):
     return f"No live trend data available for {genre_str}."
 
 # ── Groq analysis ──────────────────────────────────────────────────────
-def _call_groq(prompt, max_tokens=1800, fast=False):
+def _call_groq(prompt, max_tokens=1800, fast=False, temperature=0.7):
     """Single Groq call with retry logic. Returns parsed dict or raises.
     fast=True uses openai/gpt-oss-20b (lower token cost, good for film reasons).
     fast=False uses openai/gpt-oss-120b (better quality, for main analysis).
@@ -1109,7 +1132,7 @@ def _call_groq(prompt, max_tokens=1800, fast=False):
     model   = "openai/gpt-oss-20b" if fast else "openai/gpt-oss-120b"
     payload = {"model": model,
                "messages":[{"role":"user","content":prompt}],
-               "temperature":0.7,"max_completion_tokens":max_tokens,
+               "temperature":temperature,"max_completion_tokens":max_tokens,
                "reasoning_effort":"low"}
     # reasoning_effort=low: the gpt-oss models spend part of their token budget on
     # hidden internal reasoning before writing the visible answer, and that hidden
