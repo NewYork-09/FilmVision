@@ -869,7 +869,7 @@ async function handleLogout() {
   display: none;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 950px) {
   .nav-container,
   main {
     display: none !important;

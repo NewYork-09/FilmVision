@@ -262,7 +262,7 @@ def forgot_password():
     # emails are registered. Build it once and return it on every path below.
     generic_ok = jsonify({
         "ok": True,
-        "message": "If an account exists for that email, we've sent password reset instructions."
+        "message": "If an account exists for that email, we've sent password reset instructions. If you don't see it within a few minutes, please check your spam or junk folder."
     })
 
     con = get_db()
