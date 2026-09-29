@@ -3,9 +3,7 @@
 # ══════════════════════════════════════════════════════════════════════════
 # This file is one Flask app made of several independently-labeled parts.
 # Search for the bracketed tags below (e.g. search this file for "[XGBOOST]")
-# to jump straight to any part. This hierarchy matches the thesis paper's
-# Conceptual Framework: Comparative Analysis (KNN) → real-world market check
-# → Predictive Analysis (XGBoost) → Budget Recommendation → Groq synthesis.
+# to jump straight to any part.
 #
 #   [AUTH / STORAGE — EXTERNAL FILE]
 #       Account login, sessions, and any saved/history analyses are handled
@@ -13,63 +11,51 @@
 #       app.py itself persists a user's past analyses — if that exists, it
 #       lives in auth.py or a database module this file doesn't touch.
 #
+#   [XGBOOST]  — the 4-pillar prediction model (Commercial/Financial/
+#       Audience/Cultural). Runs FIRST in /analyze, using the pitch text +
+#       structured form fields (genre, tone, budget, etc) PLUS a real,
+#       leave-one-out-safe KNN-neighbor signal baked into its own training
+#       (v14: build_feature_vector's neighbor_* features — see that
+#       function's docstring). It is independent of THIS PITCH's own live
+#       retrieval, though: it never sees the specific similar films [KNN]
+#       looks up for this exact pitch, or any live market data — those
+#       arrive afterward as a separate correction (STEP 4 in analyze()).
+#       See predict_pillars_xgb() and predict_all_pillars().
+#
 #   [KNN] — finds similar/comparable films for the pitch, blending a
 #       trained K-Nearest-Neighbors model with live TMDB search results.
-#       Runs FIRST in /analyze — the paper's "Comparative Analysis" stage.
-#       See get_surface_films(), get_deep_films(), get_similar_films_hybrid(),
-#       _knn_score_single().
+#       Runs SECOND (after XGBoost). See get_surface_films(),
+#       get_deep_films(), get_similar_films_hybrid(), _knn_score_single().
 #
 #   [LIVE MARKET / INTERNET] — the only parts of this app that make live
 #       calls to check "what's happening in the real market right now":
 #       fetch_market_pulse() (numeric TMDB genre benchmark) and
 #       fetch_industry_trends() (DuckDuckGo + TMDB fallback text). Runs
-#       SECOND, after KNN retrieval.
-#
-#   [XGBOOST]  — the 4-pillar prediction model (Commercial/Financial/
-#       Audience/Cultural) — the paper's "Predictive Analysis" stage. Runs
-#       THIRD, after [KNN] and [LIVE MARKET]. Its own 4 independent pillar
-#       scores are computed purely from the pitch text + structured form
-#       fields (plus a real, leave-one-out-safe KNN-neighbor signal baked
-#       into its own TRAINING — v14: build_feature_vector's neighbor_*
-#       features). XGBoost's trained weights don't literally re-train per
-#       request on this exact pitch's live KNN/market results — but the
-#       PREDICTION METRIC this app actually returns is only ever finalized
-#       by compute_live_market_adjustment(), which folds [KNN]'s comps and
-#       [LIVE MARKET]'s pulse into a bounded correction on top of XGBoost's
-#       independent read, before anything downstream sees it. See
-#       predict_pillars_xgb(), predict_all_pillars(), and the PIPELINE ORDER
-#       comment inside analyze() for the exact honesty note on this.
-#
-#   [XGBOOST + KNN, combined] — Budget Recommendation. Runs FOURTH.
-#       _xgb_budget_tier_sweep() picks a tier via XGBoost's own Financial
-#       pillar; cross_reference_budget_tier() then blends that against the
-#       REAL reported budgets of the top KNN-retrieved comps (fetched live
-#       via fetch_comp_budgets(), the same TMDB detail-endpoint approach the
-#       training notebook validated in Step 15a/15b) — this is the paper's
-#       stated "cross-referencing...with the budget levels of the similar
-#       films retrieved through KNN," actually implemented.
+#       THIRD, after KNN retrieval. compute_live_market_adjustment() then
+#       folds both of those + the KNN results into a bounded numeric nudge
+#       on top of XGBoost's independent score — see the "PIPELINE ORDER"
+#       comment inside analyze() for exactly how these combine.
 #
 #   [GROQ] — the LLM that writes all of the narrative text (AI Strategic
 #       Analysis, Story Advisor, Budget Recommendation prose, per-film "How
 #       it Connects" reasons). Runs LAST. Every Groq prompt is handed the
-#       finished XGBoost + KNN + live-market + budget results as plain
-#       text/JSON context — Groq never re-derives or overrides any number,
-#       it only explains numbers it's given. See _call_groq() (the raw API
-#       wrapper) and get_ai_analysis() / get_budget_recommendation() /
+#       finished XGBoost + KNN + live-market results as plain text/JSON
+#       context — Groq never re-derives or overrides any number, it only
+#       explains numbers it's given. See _call_groq() (the raw API wrapper)
+#       and get_ai_analysis() / get_budget_recommendation() / 
 #       get_story_advice() / get_all_film_reasons() (the 4 places that
 #       build a Groq prompt and hand it XGBoost+KNN+live-market results).
 #
 #   PIPELINE ORDER (see analyze(), the /analyze route, for the literal code):
-#       1. KNN similar-film retrieval (blends trained KNN + live TMDB) —
-#          Comparative Analysis
-#       2. Live market pulse + industry trends (live internet calls)
-#       3. XGBoost 4-pillar prediction (independent pillar scores), then
-#          steps 1+2 combined into a bounded adjustment on top of that score
-#          (compute_live_market_adjustment) → this finalizes the numeric
-#          prediction metric that gets displayed — Predictive Analysis
-#       4. Budget recommendation: XGBoost tier-sweep argmax, cross-referenced
-#          against KNN comps' real TMDB budgets (cross_reference_budget_tier)
-#       5. Groq narrative calls — AI Strategic Analysis, Story Advisor, and
+#       1. XGBoost 4-pillar prediction (independent, pitch/form only)
+#       2. KNN similar-film retrieval (blends trained KNN + live TMDB)
+#       3. Live market pulse + industry trends (live internet calls)
+#       4. Steps 2+3 combined into a bounded adjustment on top of step 1's
+#          score (compute_live_market_adjustment) → this finalizes the
+#          numeric prediction metric that gets displayed
+#       5. Budget recommendation (XGBoost tier-sweep decides the number,
+#          Groq only writes prose explaining it — see _xgb_budget_tier_sweep)
+#       6. Groq narrative calls — AI Strategic Analysis, Story Advisor, and
 #          per-film reasons — each one receives ALL of the above as context
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -78,6 +64,8 @@ from flask_cors import CORS
 import os, requests, json, re, pickle, numpy as np
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import warnings
+warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
 try:
     from sklearn.metrics.pairwise import cosine_similarity
@@ -840,7 +828,7 @@ def build_feature_vector(form_data, is_filipino=False):
 # sees KNN-retrieved similar films or any live market data. Its raw output
 # is what predict_all_pillars() below corrects and hands off to everything
 # else (KNN retrieval, live market adjustment, then Groq).
-def predict_pillars_xgb(form_data):
+def predict_pillars_xgb(form_data, is_filipino=False):
     """
     Runs the SAME base feature vector through all 4 independent XGBoost regressors
     (Commercial/Financial/Audience/Cultural — see the v9 training notebook).
@@ -858,7 +846,7 @@ def predict_pillars_xgb(form_data):
     garbage predictions for those two pillars, so this must stay in sync with
     the notebook if PILLAR_MASKS ever changes.
     """
-    vec = build_feature_vector(form_data)
+    vec = build_feature_vector(form_data, is_filipino=is_filipino)
     out = {}
     for pillar, model in PILLAR_MODELS.items():
         pillar_vec = vec
@@ -892,9 +880,7 @@ def predict_pillars_xgb(form_data):
             out[pillar] = None
     return out
 
-# ── [XGBOOST] Orchestrator — this is "Model 2" finishing its job ───────
-# (Model 2 = XGBoost, Model 1 = KNN retrieval — naming matches the training
-# notebook's own Step 9/Step 13 labels, independent of execution order.)
+# ── [XGBOOST] Orchestrator — this is "Model 1" finishing its job ───────
 # Combines the 4 independent ML pillars with the existing rule-based
 # sub_factors metadata (mismatch flags, genre lists, etc. — all of which
 # downstream Groq prompts and adjust_score_for_market still need unchanged).
@@ -905,12 +891,66 @@ def predict_pillars_xgb(form_data):
 # sub_factors (and the -1 "undecided" sentinel behavior for missing
 # budget/audience) is untouched.
 #
-# THIS FUNCTION'S RETURN VALUE (base_score, sub_factors) IS "MODEL 2's
-# (XGBoost's) OUTPUT" — analyze() now calls this THIRD (after [KNN] and
-# [LIVE MARKET] have already run — see the PIPELINE ORDER comment at the
-# top of the file), then hands its result to compute_live_market_adjustment()
-# to be combined with [KNN] + [LIVE MARKET] results, then into every [GROQ]
-# prompt as context.
+# THIS FUNCTION'S RETURN VALUE (base_score, sub_factors) IS "MODEL 1's
+# OUTPUT" — analyze() calls this FIRST, then hands its result forward:
+# first into compute_live_market_adjustment() (combined with [KNN] +
+# [LIVE MARKET] results), then into every [GROQ] prompt as context. See the
+# PIPELINE ORDER comment inside analyze() for the literal handoff sequence.
+def _cultural_market_delta(data):
+    """
+    Rule-based Filipino-market cultural adjustment (points, can be negative).
+    Cultural is a proxy score, so market sensitivity comes from this transparent
+    rule layer: local genre affinity, purpose, tone, and Tagalog/Filipino cues.
+    """
+    genres    = as_list(data.get("genre"))
+    purposes  = as_list(data.get("film_purpose", []))
+    tones     = as_list(data.get("tone"))
+    pitch_l   = (data.get("story_pitch", "") + " " + data.get("main_theme", "")).lower()
+    delta = 0
+    ph_strong = {"Drama", "Romance", "Horror", "Comedy", "Thriller"}
+    ph_medium = {"Action", "Fantasy", "Crime", "Mystery"}
+    ph_weak   = {"Science Fiction", "Animation", "Western", "War", "Documentary"}
+    for g in genres:
+        if g in ph_strong:   delta += 4
+        elif g in ph_medium: delta += 2
+        elif g in ph_weak:   delta -= 3
+    if "Send a Social Message" in purposes: delta += 8
+    if "Raise Awareness"       in purposes: delta += 7
+    if "Artistic Expression"   in purposes: delta += 5
+    if "Just for Fun"          in purposes: delta -= 3
+    for t in tones:
+        if t in {"Nostalgic", "Dramatic", "Realistic", "Poetic", "Melancholic"}:
+            delta += 2
+    if any(w in pitch_l for w in ("filipino", "philippines", "manila", "pinoy", "tagalog", "barrio", "martial law")):
+        delta += 6
+    return delta
+
+def _scoped_cultural_score(data, intl_score, market_scope):
+    """
+    Scope-aware Cultural score:
+      1) inference: re-run the cultural XGBoost model with is_filipino=1 for
+         filipino scope; average intl+filipino runs for mixed scope.
+      2) rule layer: _cultural_market_delta (full for filipino, half for mixed).
+    international scope returns intl_score untouched.
+    """
+    if market_scope not in ("filipino", "mixed"):
+        return intl_score
+    score = intl_score
+    ph_raw = None
+    try:
+        ph_raw = predict_pillars_xgb(data, is_filipino=True).get("cultural")
+    except Exception as e:
+        print(f"[Cultural-Scope] filipino inference failed: {e}")
+    if ph_raw is not None:
+        score = ph_raw if market_scope == "filipino" else round((intl_score + ph_raw) / 2)
+    delta = _cultural_market_delta(data)
+    if market_scope == "mixed":
+        delta = delta * 0.5
+    final = max(10, min(92, round(score + delta)))
+    print(f"[Cultural-Scope] scope={market_scope} intl_xgb={intl_score} "
+          f"filipino_xgb={ph_raw} blended={score} rule_delta={delta} final={final}")
+    return final
+
 def predict_all_pillars(data):
     sub_factors = compute_sub_metrics(data)   # unchanged — still the source of all metadata
     if ML_READY:
@@ -944,7 +984,8 @@ def predict_all_pillars(data):
                 xgb_audience_score = max(10, round(xgb_audience_score - mismatch_pen))
             sub_factors["audience"]["score"] = xgb_audience_score
         if pillar_scores.get("cultural") is not None:
-            sub_factors["cultural"]["score"] = pillar_scores["cultural"]
+            sub_factors["cultural"]["score"] = _scoped_cultural_score(
+                data, pillar_scores["cultural"], data.get("market_scope", "international"))
         method = "xgboost"
     else:
         base_score = predict_success_fallback(data)
@@ -1489,15 +1530,13 @@ def _extract_anchor_words(pitch, theme, genres):
     fillers = [w for w in unique if w not in nouns]
     return nouns, fillers
 
-# ── [KNN] Main hybrid similar-film search — this is "Model 1" ───────────
-# Part of Comparative Analysis, which now runs FIRST in the pipeline (see
-# the top-of-file banner). Blends the trained knn_model
+# ── [KNN] Main hybrid similar-film search — this is "Model 2" ───────────
+# Runs SECOND in the pipeline (after [XGBOOST]). Blends the trained knn_model
 # (_knn_score_single) with live TMDB search results, semantic-embedding
 # similarity, and keyword overlap into one ranked list of comparable films.
 # Its output (similar films with real, current TMDB data attached) feeds
 # forward into: (1) compute_live_market_adjustment() — a [LIVE MARKET]
-# numeric input, (2) budget cross-referencing (fetch_comp_budgets), and
-# (3) every [GROQ] prompt as context.
+# numeric input, and (2) every [GROQ] prompt as context.
 def get_similar_films_hybrid(form_data):
     genres    = as_list(form_data.get("genre"))
     times     = as_list(form_data.get("time_period"))
@@ -1935,7 +1974,7 @@ def get_ai_analysis(film_data, similar_films, success_rate, ml_ready,
     tone_label    = normalize(film_data.get("tone"))
     audience_label= normalize(film_data.get("target_audience"))
     purpose_label = normalize(film_data.get("film_purpose",[]),"unspecified")
-    pitch_short   = pitch[:80]
+    pitch_short   = pitch[:400]
 
     mismatch_block = ""
     if mismatches:
@@ -2114,94 +2153,6 @@ def _fmt_pillar_score(score):
 BUDGET_TIERS_ORDER = ["Micro (<$1M)", "Low ($1M-$10M)", "Mid ($10M-$50M)",
                        "High ($50M-$150M)", "Blockbuster ($150M+)"]
 
-# ── [KNN + LIVE MARKET / INTERNET] Real comp-budget cross-referencing ───
-# This is the literal mechanism the thesis paper describes for Budget
-# Recommendation ("derived by cross-referencing the model's output with the
-# budget levels of the similar films retrieved through KNN"). It could NOT
-# be implemented before this pass: TMDB's /discover endpoint — the one
-# get_surface_films/get_deep_films use for retrieval — never returns
-# budget/revenue at all (confirmed in the training notebook's Step 15a note).
-# The fix: fetch each top comp's REAL reported budget from TMDB's per-film
-# /movie/{id} DETAIL endpoint — the exact same endpoint and methodology
-# already validated in the training notebook (Step 15a/15b, financial proxy
-# vs real revenue) — just called live, here, for a handful of comps instead
-# of a training-time sample.
-def fetch_comp_budgets(similar_films, max_films=6):
-    """
-    [LIVE MARKET / INTERNET] Fetches real, reported budgets for the top
-    KNN-retrieved comps. TMDB's budget reporting is sparse (Step 15a found
-    real budget+revenue on only a fraction of a general sample) — this
-    returns whatever real figures ARE available and stays silent about the
-    rest. Callers must treat a short/empty result as "no comp-budget signal
-    available," never as "these comps cost $0."
-    """
-    budgets = []
-    for f in (similar_films or [])[:max_films]:
-        tmdb_id = f.get("tmdb_id")
-        if not tmdb_id or tmdb_id < 0:   # negative ids are Filipino-CSV rows with no real TMDB id
-            continue
-        try:
-            r = requests.get(f"{TMDB_BASE}/movie/{tmdb_id}",
-                              params={"api_key": TMDB_API_KEY}, timeout=5)
-            detail = r.json()
-            budget = detail.get("budget", 0) or 0
-            if budget > 0:
-                budgets.append({"title": f.get("title", ""), "budget": budget})
-        except Exception as e:
-            print(f"[CompBudgets] fetch failed for tmdb_id={tmdb_id}: {e}")
-    return budgets
-
-def budget_amount_to_tier(amount):
-    """Buckets a real dollar figure into this app's 5 budget tiers — same
-    bounds used throughout the training notebook's budget-recommender eval
-    (Step 15c: BUDGET_BOUNDS)."""
-    if amount < 1_000_000:   return "Micro (<$1M)"
-    if amount < 10_000_000:  return "Low ($1M-$10M)"
-    if amount < 50_000_000:  return "Mid ($10M-$50M)"
-    if amount < 150_000_000: return "High ($50M-$150M)"
-    return "Blockbuster ($150M+)"
-
-def cross_reference_budget_tier(xgb_tier, comp_budgets):
-    """
-    [XGBOOST + KNN, combined] Cross-references XGBoost's argmax tier (from
-    _xgb_budget_tier_sweep) against the REAL reported budgets of the
-    KNN-retrieved comps (fetch_comp_budgets) — this IS the paper's described
-    Budget Recommendation mechanism, now actually implemented rather than
-    just claimed.
-
-    If no comp has reported budget data (common — TMDB budget reporting is
-    sparse), this silently falls back to the pure XGBoost tier, which is
-    always a safe, always-available baseline — the paper's mechanism becomes
-    an enhancement on top of XGBoost, not a replacement for it, exactly
-    because real comp budgets aren't guaranteed to exist for every pitch.
-
-    When comp data IS available, the final tier is the ROUNDED AVERAGE of
-    XGBoost's own tier index and the comps' median real-budget tier index —
-    deliberately a blend, not a straight override: comps' raw dollar figures
-    say nothing about whether that budget suits THIS pitch's genre/tone (see
-    genre_budget_fit_bonus), so real comp data nudges the recommendation
-    without being allowed to override XGBoost's own genre-aware read alone.
-    """
-    if not comp_budgets:
-        return xgb_tier, {"applied": False, "reason": "no comp budget data available"}
-
-    tiers_order     = BUDGET_TIERS_ORDER
-    comp_tier_idxs  = [tiers_order.index(budget_amount_to_tier(c["budget"])) for c in comp_budgets]
-    median_comp_idx = int(round(float(np.median(comp_tier_idxs))))
-    xgb_idx         = tiers_order.index(xgb_tier)
-
-    final_idx  = int(round((xgb_idx + median_comp_idx) / 2))
-    final_idx  = max(0, min(len(tiers_order) - 1, final_idx))
-    final_tier = tiers_order[final_idx]
-
-    return final_tier, {
-        "applied":           True,
-        "xgb_tier":          xgb_tier,
-        "comp_median_tier":  tiers_order[median_comp_idx],
-        "comp_budgets_used": comp_budgets,
-        "final_tier":        final_tier
-    }
-
 def _xgb_budget_tier_sweep(form_data):
     """
     [XGBOOST] v12: computes the REAL XGBoost-predicted Financial (and Commercial, for
@@ -2260,13 +2211,10 @@ def _xgb_budget_tier_sweep(form_data):
 
 def get_budget_recommendation(film_data, similar_films, sub_factors):
     """
-    [XGBOOST decides the number] + [KNN cross-references real comp budgets]
-    + [GROQ writes the prose] — recommended_range starts as
-    _xgb_budget_tier_sweep()'s argmax-by-Financial-score tier (WITH the
-    genre_budget_fit_bonus correction applied), then cross_reference_budget_tier()
-    blends it with the REAL reported budgets of the top KNN-retrieved comps
-    (fetch_comp_budgets) when that data is available — this is the paper's
-    stated Budget Recommendation mechanism, actually implemented. Groq is
+    [XGBOOST decides the number] + [GROQ writes the prose] —
+    recommended_range is computed by _xgb_budget_tier_sweep() (the
+    argmax-by-Financial-score tier, WITH the genre_budget_fit_bonus
+    correction applied — see that function), not chosen by Groq. Groq is
     still used — but only to WRITE PROSE explaining a number it's given
     (usage_guidance/caveats), never to pick the number itself. If the tier
     sweep can't run (ML not ready), this falls back to the original pre-v12
@@ -2281,7 +2229,7 @@ def get_budget_recommendation(film_data, similar_films, sub_factors):
     budget_given = film_data.get("budget_range", "")
     casting      = as_list(film_data.get("casting_category", []))
     schedule     = film_data.get("production_schedule", "")
-    pitch_short  = film_data.get("story_pitch", "")[:80]
+    pitch_short  = film_data.get("story_pitch", "")[:400]
     theme        = film_data.get("main_theme", "")
 
     genre_label  = normalize(film_data.get("genre"))
@@ -2303,19 +2251,7 @@ def get_budget_recommendation(film_data, similar_films, sub_factors):
 
     if valid_tiers:
         xgb_best = max(valid_tiers, key=lambda t: t["financial_score"])   # [XGBOOST] picks the number
-        xgb_only_range = xgb_best["budget_range"]
-
-        # ── [KNN + LIVE MARKET] cross-reference against comps' REAL budgets ──
-        # This is the actual implementation of the paper's stated mechanism:
-        # "derived by cross-referencing the model's output with the budget
-        # levels of the similar films retrieved through KNN." See
-        # fetch_comp_budgets/cross_reference_budget_tier for how this degrades
-        # gracefully (falls back to the pure XGBoost tier) when no comp has
-        # real, reported budget data on TMDB.
-        comp_budgets = fetch_comp_budgets(similar_films)
-        xgb_recommended_range, comp_crossref_detail = cross_reference_budget_tier(
-            xgb_only_range, comp_budgets
-        )
+        xgb_recommended_range = xgb_best["budget_range"]
         # Tier scores are still computed and kept internally (xgb_tier_comparison, below)
         # for transparency/debugging — but they are NOT shown to Groq's prompt anymore, and
         # the prompt explicitly forbids numeric/comparison output. Per note: Groq should
@@ -2355,7 +2291,6 @@ def get_budget_recommendation(film_data, similar_films, sub_factors):
         # number from, so fall back to the pre-v12 behavior: Groq picks the range itself from
         # genre convention, same as this function always did before — still no numbers in output.
         xgb_recommended_range = None
-        comp_crossref_detail  = {"applied": False, "reason": "no XGBoost tier to cross-reference"}
         prompt = (
             "You are a film production consultant. Pick a budget tier and explain practically "
             "how to use it — you are NOT given a pre-computed tier this time, so choose one.\n"
@@ -2392,13 +2327,12 @@ def get_budget_recommendation(film_data, similar_films, sub_factors):
             if k not in result or result[k] is None:
                 result[k] = v
         if xgb_recommended_range:
-            # The range is ALWAYS the cross-referenced tier in this branch — overwritten here
+            # The range is ALWAYS the XGBoost-derived tier in this branch — overwritten here
             # (not just requested in the prompt) so a model that ignores instructions and
             # echoes a different tier into this field can't silently desync the displayed
             # range from the number that's actually been computed.
             result["recommended_range"]   = xgb_recommended_range
-            result["xgb_tier_comparison"] = valid_tiers            # additive field — frontend can ignore
-            result["comp_budget_crossref"] = comp_crossref_detail  # [KNN+LIVE MARKET] transparency — see cross_reference_budget_tier
+            result["xgb_tier_comparison"] = valid_tiers   # additive field — frontend can ignore
         print("[Groq] Budget recommendation call success")
         return result
     except Exception as e:
@@ -2780,10 +2714,11 @@ def get_surface_films(form_data, scope="international"):
         candidates.update(_corpus_semantic_candidates(pitch, theme, top_k=8, filipino_only=True))
 
         print(f"[Surface-filipino] {len(candidates)} candidates before adult filter")
-        ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
+        ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False,
+                                   min_votes=15, pad=False)
         ph_only = [f for f in ranked if f.get("is_filipino")]
         print(f"[Surface-filipino] {len(ph_only)} confirmed Filipino films after filter")
-        return ph_only[:6] if ph_only else ranked[:6]
+        return ph_only[:6]
 
     # ── INTERNATIONAL SCOPE ───────────────────────────────────────────
     known_genres_lower = {"comedy","drama","action","horror","thriller","animation",
@@ -2949,10 +2884,11 @@ def get_deep_films(form_data, scope="international", exclude_ids=None):
                                                         filipino_only=True, exclude_ids=exclude_ids))
 
         print(f"[Deep-filipino] {len(candidates)} candidates before adult filter")
-        ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False)
+        ranked = _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=False,
+                                   min_votes=15, pad=False)
         ph_only = [f for f in ranked if f.get("is_filipino")]
         print(f"[Deep-filipino] {len(ph_only)} confirmed Filipino films after filter")
-        return ph_only[:6] if ph_only else ranked[:6]
+        return ph_only[:6]
 
 
     deep_q = _deep_keywords(pitch, theme, genres, tones)
@@ -3207,7 +3143,10 @@ SIMILARITY_FLOOR = 45  # Candidates scoring below this are dropped rather than p
                         # but re-check it against real result quality once the embedding
                         # model is actually loadable and you can see real score distributions.
 
-def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=True):
+CORPUS_PIN_THRESHOLD = 0.75   # raw embedding cosine at/above which a corpus film is pinned to rank 1
+
+def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=True,
+                    min_votes=0, pad=True):
     """[KNN] Shared scoring + ranking logic for both surface and deep film searches —
     this is where _knn_score_single's output blends with semantic similarity and
     keyword overlap into the final similar-films list that later reaches Groq."""
@@ -3239,6 +3178,12 @@ def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=Tr
         # meaning NO adult-content filtering actually ran on real results despite the function
         # being fully built. This wires it into the path that's actually used.
         if _is_adult_content(r):
+            continue
+        # Quality gate (used for Filipino scope): drop films with too few votes, and
+        # near-perfect ratings backed by almost no votes (fake-looking, e.g. a 10.0 star).
+        if min_votes and (r.get("vote_count", 0) or 0) < min_votes:
+            continue
+        if (r.get("vote_average", 0) or 0) >= 9.5 and (r.get("vote_count", 0) or 0) < 50:
             continue
         overview   = r.get("overview","")
         source     = cand["source"]
@@ -3316,7 +3261,8 @@ def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=Tr
             "poster":       f"https://image.tmdb.org/t/p/w300{poster_path}" if poster_path else None,
             "similarity":   round(combined, 1),
             "is_filipino":  r.get("original_language","") in ("tl","fil") or r.get("origin_country","") == "PH" or "PH" in (r.get("production_countries") or []),
-            "reason":       ""
+            "reason":       "",
+            "_pin":         float(cand.get("_semantic_score", 0)) if source == "corpus_semantic" else 0.0
         })
 
     if raw_sem_diagnostic:
@@ -3327,10 +3273,21 @@ def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=Tr
 
     scored.sort(key=lambda x: x["similarity"], reverse=True)
 
+    # High-confidence exact-match pin: a corpus film whose raw embedding cosine to the
+    # pitch is >= CORPUS_PIN_THRESHOLD goes to the top regardless of the form-metadata blend.
+    pinned = sorted([f for f in scored if f["_pin"] >= CORPUS_PIN_THRESHOLD],
+                    key=lambda x: -x["_pin"])
+    if pinned:
+        print(f"[Pin] high-confidence corpus matches pinned to top: "
+              f"{[(f['title'], round(f['_pin'], 3)) for f in pinned]}")
+        scored = pinned + [f for f in scored if f["_pin"] < CORPUS_PIN_THRESHOLD]
+
     def _dedupe_top(films, apply_floor):
+        # pinned films bypass the similarity floor
+        pass_floor = lambda f: f["_pin"] >= CORPUS_PIN_THRESHOLD
         seen, out = set(), []
         for film in films:
-            if apply_floor and film["similarity"] is not None and film["similarity"] < SIMILARITY_FLOOR:
+            if apply_floor and not pass_floor(film) and film["similarity"] is not None and film["similarity"] < SIMILARITY_FLOOR:
                 continue
             if film["title"] not in seen:
                 seen.add(film["title"])
@@ -3341,9 +3298,12 @@ def _score_and_rank(candidates, form_data, pitch, theme, n=6, strict_semantic=Tr
 
     final = _dedupe_top(scored, apply_floor=True)
 
-    if len(final) < 3:
+    if len(final) < 3 and pad:
         print(f"[Ranked] Only {len(final)} passed the {SIMILARITY_FLOOR} floor — falling back to best-available")
         final = _dedupe_top(scored, apply_floor=False)
+
+    for f in scored:
+        f.pop("_pin", None)
 
     print(f"[Ranked] Top {len(final)}: {[f['title'] for f in final]}")
     return final
@@ -3362,7 +3322,7 @@ def get_all_film_reasons(film_data, intl_surface=None, intl_deep=None, ph_surfac
     pitch   = film_data.get("story_pitch", "")
     theme   = film_data.get("main_theme", "")
     genre   = normalize(film_data.get("genre"))
-    pitch_short = pitch[:80]
+    pitch_short = pitch[:400]
 
     surface_openers = [
         "Name the plot mechanic in {t} that parallels the pitch. What can the creator learn?",
@@ -3459,19 +3419,22 @@ def analyze():
         return jsonify({"error": f"Required fields missing: {', '.join(missing)}"}), 400
 
     # ══════════════════════════════════════════════════════════════════
-    # PIPELINE ORDER — matches the thesis paper's Conceptual Framework:
-    # Comparative Analysis (KNN) → real-world market check → Predictive
-    # Analysis (XGBoost) produces the prediction metric informed by both →
-    # Budget Recommendation (cross-referenced against KNN comps' real
-    # budgets) → Groq synthesizes everything into professional narrative.
-    # See the top-of-file ARCHITECTURE OVERVIEW banner for the full map.
+    # PIPELINE ORDER — this is the literal sequence FilmVision runs, in code.
+    # See the top-of-file ARCHITECTURE OVERVIEW banner for the plain-English
+    # version. Each step below is tagged with which part handles it and
+    # what it hands to the next step ("sends results to the next model").
+    # ══════════════════════════════════════════════════════════════════
 
-    # STEP 1 — [KNN] similar + deep film retrieval, for each market scope.
-    # Runs FIRST — this is the paper's "Comparative Analysis" stage. Blends
-    # the trained knn_model with live TMDB search results. Its output
-    # (all_films) feeds forward into STEP 2 (comp-budget cross-referencing
-    # is deferred to the budget step), STEP 3 (live-market adjustment),
-    # and every STEP 5/6 [GROQ] prompt.
+    # STEP 1 — [XGBOOST] runs FIRST. Independent: only sees the pitch text +
+    # structured form fields. Does NOT see KNN's similar films or any live
+    # market data. Its output (base_score, sub_factors) is what every later
+    # step receives and builds on top of.
+    base_score, sub_factors, method = predict_all_pillars(data)
+
+    # STEP 2 — [KNN] similar + deep film retrieval for each market scope.
+    # Runs SECOND, after XGBoost. Blends the trained knn_model with live
+    # TMDB search results. Its output (all_films) is sent forward into
+    # STEP 4 (live-market adjustment) AND into every STEP 6 [GROQ] prompt.
     intl_surface, intl_deep, ph_surface, ph_deep = [], [], [], []
 
     if market_scope in ("international", "mixed"):
@@ -3487,33 +3450,24 @@ def analyze():
                                       exclude_ids=ph_surface_ids)
 
     # Backward-compat + Groq gets all films
-    all_films = intl_surface + intl_deep + ph_surface + ph_deep   # [KNN] combined output, sent to STEP 3 and STEP 5/6
+    all_films = intl_surface + intl_deep + ph_surface + ph_deep   # [KNN] combined output, sent to STEP 4 and STEP 6
     intl_films = intl_surface  # backward compat
     ph_films   = ph_surface    # backward compat
 
-    # STEP 2 — [LIVE MARKET / INTERNET] the only live "check the real world"
-    # calls in this app. Runs SECOND, after KNN retrieval, matching the
-    # paper's "checks current market conditions" stage. market_pulse is a
+    # STEP 3 — [LIVE MARKET / INTERNET] the only live "check the real world"
+    # calls in this app. Runs THIRD, after KNN retrieval. market_pulse is a
     # live TMDB numeric benchmark; industry_trends is live DDG/TMDB text.
-    # Both get sent forward: market_pulse → STEP 3 (the number),
-    # industry_trends → STEP 5 [GROQ] (the narrative).
+    # Both get sent forward: market_pulse → STEP 4 (the number), industry_trends → STEP 6 [GROQ] (the narrative).
     genres          = as_list(data.get("genre"))
     market_pulse    = fetch_market_pulse(genres)
     industry_trends = fetch_industry_trends(genres, normalize(data.get("tone")), data.get("main_theme",""))
 
-    # STEP 3 — [XGBOOST] runs THIRD — this is the paper's "Predictive
-    # Analysis" stage, and it now runs AFTER Comparative Analysis (STEP 1)
-    # and the market check (STEP 2), matching the paper's stated sequence.
-    # predict_all_pillars() itself still computes its 4 independent pillar
-    # scores purely from the pitch/form fields (see the HONEST NOTE above
-    # for why XGBoost's own weights can't literally consume STEP 1/2's
-    # output without a retrain) — but the PREDICTION METRIC this function
-    # returns to the user is only finalized immediately below, by folding
-    # STEP 1's KNN comps + STEP 2's market pulse into a bounded adjustment
-    # on top of XGBoost's independent read. This is the literal "with both
-    # of those in mind, it creates a prediction metric" step.
-    base_score, sub_factors, method = predict_all_pillars(data)
-
+    # STEP 4 — [XGBOOST + KNN + LIVE MARKET, combined] "with both of those in
+    # mind, it creates a prediction metric": STEP 2's all_films + STEP 3's
+    # market_pulse get folded into ONE bounded adjustment on top of STEP 1's
+    # independent base_score. This is the "sends results to the next model"
+    # handoff point — the finalized success_rate below is what STEP 5 and
+    # every STEP 6 [GROQ] call actually receives, not the raw XGBoost number.
     live_adjustment, live_market_detail = compute_live_market_adjustment(all_films, market_pulse)
     base_score_live = max(10, min(96, round(base_score + live_adjustment)))
 
@@ -3537,33 +3491,18 @@ def analyze():
     else:
         analysis_films = (intl_surface + ph_surface)[:6]
 
-    # STEP 4 — [XGBOOST decides tier] + [KNN cross-references real comp
-    # budgets] Budget Recommendation. Runs BEFORE any Groq call, so its
-    # result is part of "all that information" Groq synthesizes in STEP 5 —
-    # matches the paper's stated order (prediction metric → budget
-    # recommendation → Groq). See get_budget_recommendation /
-    # cross_reference_budget_tier for how XGBoost's tier-sweep argmax gets
-    # blended with the real, reported budgets of the KNN comps.
-    budget_recommendation = get_budget_recommendation(
-        data,
-        similar_films=analysis_films,
-        sub_factors=sub_factors
-    )
-
-    # STEP 5 — [GROQ] runs LAST, after the prediction metric (STEP 3) and
-    # budget recommendation (STEP 4) both exist. This call — "the part that
-    # sends results to Groq" and "tells Groq to use what the other models
-    # returned" — receives STEP 3's finished success_rate/sub_factors
-    # ([XGBOOST]'s result, already corrected by STEP 1+2), STEP 1's
-    # analysis_films ([KNN]'s result), and STEP 2's industry_trends
-    # ([LIVE MARKET]'s result) all together as prompt context. See
-    # get_ai_analysis()'s prompt-building code for exactly where each one
+    # STEP 5 — [GROQ] runs LAST. This call — "the part that sends results to
+    # Groq" and "tells Groq to use what the other models returned" — receives
+    # STEP 4's finished success_rate/sub_factors ([XGBOOST]'s result, already
+    # corrected), STEP 2's analysis_films ([KNN]'s result), and STEP 3's
+    # industry_trends ([LIVE MARKET]'s result) all together as prompt context.
+    # See get_ai_analysis()'s prompt-building code for exactly where each one
     # gets inserted into the text Groq actually reads.
     ai_analysis = get_ai_analysis(data, analysis_films, success_rate, ML_READY,
                                    industry_trends, sub_factors)
 
-    # STEP 5b — [GROQ] per-film "How it Connects" reasons — a separate Groq
-    # call per film group, still receiving STEP 1's [KNN] film groups as input.
+    # STEP 6 — [GROQ] per-film "How it Connects" reasons — a separate Groq
+    # call per film group, still receiving STEP 2's [KNN] film groups as input.
     # Generate reasons for ALL films across all 4 groups separately
     # Each group calls Groq independently in 3-film chunks — guarantees complete coverage
     all_film_reasons = get_all_film_reasons(
@@ -3601,10 +3540,16 @@ def analyze():
         "cultural":  sub_factors["cultural"]["score"]
     }
 
-    story_advice = get_story_advice(   # [GROQ] receives STEP 3's success_rate/sub_factors + STEP 1's analysis_films
+    story_advice = get_story_advice(   # [GROQ] receives STEP 4's success_rate/sub_factors + STEP 2's analysis_films
         data,
         similar_films=analysis_films,
         success_rate=success_rate,
+        sub_factors=sub_factors
+    )
+
+    budget_recommendation = get_budget_recommendation(   # [XGBOOST decides tier] + [GROQ writes prose]
+        data,
+        similar_films=analysis_films,
         sub_factors=sub_factors
     )
 
@@ -3613,31 +3558,31 @@ def analyze():
     # parts above; nothing here is computed fresh at this point.
     # ══════════════════════════════════════════════════════════════════
     return jsonify({
-        "intl_surface":         intl_surface,          # [KNN] STEP 1 output
-        "intl_deep":            intl_deep,              # [KNN] STEP 1 output
-        "ph_surface":           ph_surface,              # [KNN] STEP 1 output
-        "ph_deep":              ph_deep,                  # [KNN] STEP 1 output
+        "intl_surface":         intl_surface,          # [KNN] STEP 2 output
+        "intl_deep":            intl_deep,              # [KNN] STEP 2 output
+        "ph_surface":           ph_surface,              # [KNN] STEP 2 output
+        "ph_deep":              ph_deep,                  # [KNN] STEP 2 output
         "intl_films":           intl_films,               # [KNN] alias, backward compat
         "ph_films":             ph_films,                  # [KNN] alias, backward compat
         "similar_films":        intl_films,                # [KNN] alias, backward compat
         "market_scope":         market_scope,
         "wants_profit":         wants_profit,
-        "success_rate":         success_rate,          # [XGBOOST]+[KNN]+[LIVE MARKET]+[RULE-BASED CORRECTION] — the fully finalized STEP 3 metric
+        "success_rate":         success_rate,          # [XGBOOST]+[KNN]+[LIVE MARKET]+[RULE-BASED CORRECTION] — the fully finalized STEP 4 metric
         "sub_scores":           sub_scores,             # [XGBOOST], corrected — financial/audience/cultural (see predict_all_pillars)
         "ai_analysis":          ai_analysis,             # [GROQ] STEP 5 output
         "sub_reasons":          sub_reasons,             # [GROQ] STEP 5 output (per-pillar reason text)
         "method":               method,
         "story_advice":         story_advice,           # [GROQ] output
-        "budget_recommendation": budget_recommendation,  # [XGBOOST tier] + [KNN comp-budget crossref] + [GROQ] prose — STEP 4
+        "budget_recommendation": budget_recommendation,  # [XGBOOST] number + [GROQ] prose
         # Transparency for the live-market fix: shows exactly how the KNN-retrieved
         # comps + live genre benchmark nudged the XGBoost base score, so this is
         # citable in the thesis rather than a silent internal adjustment.
-        "live_market": {                                # [XGBOOST]+[KNN]+[LIVE MARKET] transparency block — see STEP 3
-            "base_score_xgboost":   base_score,             # [XGBOOST] STEP 3 raw pillar output, pre-adjustment
-            "live_adjustment":      live_adjustment,         # [KNN]+[LIVE MARKET] STEP 3 computed nudge
-            "base_score_after_live": base_score_live,         # STEP 3 result, before per-market rules
-            "detail":               live_market_detail,        # STEP 3 breakdown (comp vote avg vs genre benchmark)
-            "market_pulse":         market_pulse                # [LIVE MARKET] STEP 2 raw numbers
+        "live_market": {                                # [XGBOOST]+[KNN]+[LIVE MARKET] transparency block — see STEP 4
+            "base_score_xgboost":   base_score,             # [XGBOOST] STEP 1 raw output, pre-adjustment
+            "live_adjustment":      live_adjustment,         # [KNN]+[LIVE MARKET] STEP 4 computed nudge
+            "base_score_after_live": base_score_live,         # STEP 4 result, before per-market rules
+            "detail":               live_market_detail,        # STEP 4 breakdown (comp vote avg vs genre benchmark)
+            "market_pulse":         market_pulse                # [LIVE MARKET] STEP 3 raw numbers
         }
     })
   except Exception as e:

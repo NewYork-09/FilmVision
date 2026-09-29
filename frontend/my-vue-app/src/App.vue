@@ -59,16 +59,16 @@
         <button class="auth-close" @click="closeModal">&#10005;</button>
 
         <!-- Tabs -->
-        <div class="auth-tabs">
+        <div v-if="authMode === 'login' || authMode === 'register'" class="auth-tabs">
           <button
             class="auth-tab"
             :class="{ active: authMode === 'login' }"
-            @click="authMode = 'login'; authError = ''"
+            @click="authMode = 'login'; authError = ''; authInfo = ''"
           >Log In</button>
           <button
             class="auth-tab"
             :class="{ active: authMode === 'register' }"
-            @click="authMode = 'register'; authError = ''"
+            @click="authMode = 'register'; authError = ''; authInfo = ''"
           >Create Account</button>
         </div>
 
@@ -82,18 +82,22 @@
             <label>Password</label>
             <input v-model="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password" @keydown.enter="submitLogin" />
           </div>
+          <p class="auth-forgot">
+            <span @click="authMode = 'forgot'; authError = ''; authInfo = ''">Forgot password?</span>
+          </p>
           <div v-if="authError" class="auth-error">{{ authError }}</div>
+          <div v-if="authInfo" class="auth-info">{{ authInfo }}</div>
           <button class="auth-submit" :disabled="authLoading" @click="submitLogin">
             {{ authLoading ? 'Logging in…' : 'Log In' }}
           </button>
           <p class="auth-switch">
             Don't have an account?
-            <span @click="authMode = 'register'; authError = ''">Create one</span>
+            <span @click="authMode = 'register'; authError = ''; authInfo = ''">Create one</span>
           </p>
         </div>
 
         <!-- REGISTER FORM -->
-        <div v-else class="auth-form">
+        <div v-else-if="authMode === 'register'" class="auth-form">
           <div class="auth-field">
             <label>Username</label>
             <input v-model="regUsername" type="text" placeholder="filmmaker123" autocomplete="username" />
@@ -112,7 +116,45 @@
           </button>
           <p class="auth-switch">
             Already have an account?
-            <span @click="authMode = 'login'; authError = ''">Log in</span>
+            <span @click="authMode = 'login'; authError = ''; authInfo = ''">Log in</span>
+          </p>
+        </div>
+
+        <!-- FORGOT PASSWORD FORM -->
+        <div v-else-if="authMode === 'forgot'" class="auth-form">
+          <p class="auth-forgot-lead">Enter your account email and we'll send you a link to reset your password.</p>
+          <div class="auth-field">
+            <label>Email</label>
+            <input v-model="forgotEmail" type="email" placeholder="you@example.com" autocomplete="email" @keydown.enter="submitForgotPassword" />
+          </div>
+          <div v-if="authError" class="auth-error">{{ authError }}</div>
+          <div v-if="authInfo" class="auth-info">{{ authInfo }}</div>
+          <button class="auth-submit" :disabled="authLoading" @click="submitForgotPassword">
+            {{ authLoading ? 'Sending…' : 'Send Reset Link' }}
+          </button>
+          <p class="auth-switch">
+            <span @click="authMode = 'login'; authError = ''; authInfo = ''">&larr; Back to log in</span>
+          </p>
+        </div>
+
+        <!-- RESET PASSWORD FORM (opened from the emailed link) -->
+        <div v-else-if="authMode === 'reset'" class="auth-form">
+          <p class="auth-forgot-lead">Choose a new password for your account.</p>
+          <div class="auth-field">
+            <label>New Password <span class="auth-hint">(min. 6 characters)</span></label>
+            <input v-model="newPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
+          </div>
+          <div class="auth-field">
+            <label>Confirm New Password</label>
+            <input v-model="newPasswordConfirm" type="password" placeholder="••••••••" autocomplete="new-password" @keydown.enter="submitResetPassword" />
+          </div>
+          <div v-if="authError" class="auth-error">{{ authError }}</div>
+          <div v-if="authInfo" class="auth-info">{{ authInfo }}</div>
+          <button class="auth-submit" :disabled="authLoading" @click="submitResetPassword">
+            {{ authLoading ? 'Resetting…' : 'Reset Password' }}
+          </button>
+          <p class="auth-switch">
+            <span @click="authMode = 'login'; authError = ''; authInfo = ''">&larr; Back to log in</span>
           </p>
         </div>
       </div>
@@ -252,8 +294,9 @@ const API = import.meta.env.VITE_API_URL || ''
 
 const currentUser = ref(null)
 const showModal   = ref(false)
-const authMode    = ref('login')   // 'login' | 'register'
+const authMode    = ref('login')   // 'login' | 'register' | 'forgot' | 'reset'
 const authError   = ref('')
+const authInfo    = ref('')        // success/info message — separate from authError so it renders green, not red
 const authLoading = ref(false)
 
 // Form fields
@@ -262,6 +305,10 @@ const loginPassword = ref('')
 const regUsername   = ref('')
 const regEmail      = ref('')
 const regPassword   = ref('')
+const forgotEmail   = ref('')
+const resetToken    = ref('')      // populated from the ?reset_token= link in the emailed URL
+const newPassword        = ref('')
+const newPasswordConfirm = ref('')
 
 // Expose user state to child components via provide/inject
 provide('currentUser', currentUser)
@@ -295,23 +342,46 @@ onMounted(async () => {
     const data = await res.json()
     if (data.user) currentUser.value = data.user
   } catch (_) {}
+
+  // Password-reset deep link: ?reset_token=... (from the emailed link) opens
+  // the modal straight into the "set new password" step, then strips the
+  // token out of the URL bar so it doesn't linger in browser history or get
+  // accidentally shared via copy-paste of the address bar.
+  const params = new URLSearchParams(window.location.search)
+  const tokenFromUrl = params.get('reset_token')
+  if (tokenFromUrl) {
+    resetToken.value = tokenFromUrl
+    authMode.value    = 'reset'
+    authError.value   = ''
+    authInfo.value    = ''
+    showModal.value   = true
+    params.delete('reset_token')
+    const cleanQuery = params.toString()
+    const cleanUrl = window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash
+    window.history.replaceState({}, '', cleanUrl)
+  }
 })
 
 // ── Modal helpers ──────────────────────────────────────────────────────
 function openModal() {
   authMode.value    = 'login'
   authError.value   = ''
+  authInfo.value    = ''
   loginEmail.value  = ''
   loginPassword.value = ''
   regUsername.value = ''
   regEmail.value    = ''
   regPassword.value = ''
+  forgotEmail.value = ''
+  newPassword.value = ''
+  newPasswordConfirm.value = ''
   showModal.value   = true
 }
 
 function closeModal() {
   showModal.value = false
   authError.value = ''
+  authInfo.value  = ''
 }
 
 // ── Login ──────────────────────────────────────────────────────────────
@@ -359,6 +429,68 @@ async function submitRegister() {
     if (!res.ok) { authError.value = data.error || 'Registration failed.'; return }
     currentUser.value = data.user
     closeModal()
+  } catch (_) {
+    authError.value = 'Network error. Please try again.'
+  } finally {
+    authLoading.value = false
+  }
+}
+
+// ── Forgot password ────────────────────────────────────────────────────
+async function submitForgotPassword() {
+  authError.value = ''
+  authInfo.value  = ''
+  if (!forgotEmail.value) {
+    authError.value = 'Please enter your email.'
+    return
+  }
+  authLoading.value = true
+  try {
+    const res  = await fetch(`${API}/auth/forgot_password`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: forgotEmail.value })
+    })
+    const data = await res.json()
+    if (!res.ok) { authError.value = data.error || 'Something went wrong.'; return }
+    // Deliberately generic — the backend returns the same message whether or
+    // not the email is registered, so this never confirms/denies an account.
+    authInfo.value = data.message || "If an account exists for that email, we've sent reset instructions."
+  } catch (_) {
+    authError.value = 'Network error. Please try again.'
+  } finally {
+    authLoading.value = false
+  }
+}
+
+// ── Reset password (from the emailed link) ──────────────────────────────
+async function submitResetPassword() {
+  authError.value = ''
+  authInfo.value  = ''
+  if (!newPassword.value || !newPasswordConfirm.value) {
+    authError.value = 'Please fill in both password fields.'
+    return
+  }
+  if (newPassword.value !== newPasswordConfirm.value) {
+    authError.value = 'Passwords do not match.'
+    return
+  }
+  authLoading.value = true
+  try {
+    const res  = await fetch(`${API}/auth/reset_password`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: resetToken.value, password: newPassword.value })
+    })
+    const data = await res.json()
+    if (!res.ok) { authError.value = data.error || 'Could not reset password.'; return }
+    newPassword.value = ''
+    newPasswordConfirm.value = ''
+    resetToken.value = ''
+    authMode.value = 'login'
+    authInfo.value = data.message || 'Password updated — you can now log in.'
   } catch (_) {
     authError.value = 'Network error. Please try again.'
   } finally {
@@ -585,6 +717,38 @@ async function handleLogout() {
   border: 1px solid rgba(248, 113, 113, 0.25);
   border-radius: 6px;
   padding: 0.5rem 0.8rem;
+}
+
+.auth-info {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.7rem;
+  color: #6ee7b7;
+  background: rgba(110, 231, 183, 0.08);
+  border: 1px solid rgba(110, 231, 183, 0.25);
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+}
+
+.auth-forgot {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.68rem;
+  text-align: right;
+  margin: -0.4rem 0 0;
+}
+.auth-forgot span {
+  color: #6b6a75;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.auth-forgot span:hover { color: #FFD700; }
+
+.auth-forgot-lead {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 300;
+  color: #c8c8d0;
+  line-height: 1.6;
+  margin: 0 0 0.2rem;
 }
 
 .auth-submit {
