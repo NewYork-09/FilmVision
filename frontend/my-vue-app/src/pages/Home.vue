@@ -81,8 +81,8 @@ onMounted(() => {
   <div class="w-full min-h-screen bg-[#0f0f0f] text-[#f2f2f2] font-body">
     
     <!-- HERO -->
-    <section class="relative h-[700px] flex items-center justify-center border-b-[40px] border-[#0f0f0f]">
-      <video autoplay muted loop playsinline class="absolute w-full h-full object-cover">
+    <section class="relative overflow-hidden h-[700px] min-[1620px]:h-[800px] min-[1720px]:h-[900px] flex items-center justify-center border-b-[40px] border-[#0f0f0f]">
+      <video autoplay muted loop playsinline class="absolute w-full h-full object-cover scale-[1.3] min-[1250px]:scale-[1.15] min-[1500px]:scale-110">
         <source :src="herovid" type="video/mp4" />
       </video>
 
@@ -137,8 +137,11 @@ onMounted(() => {
       <div class="w-full grid md:grid-cols-12">
 
         <!-- LEFT COLUMN (FilmVision + Content stacked) -->
-        <div class="md:col-span-8 pl-6 md:pl-12 py-20 mt-15 mb-25 flex flex-col gap-6 text-left items-start">
-          
+        <div class="md:col-span-8 pl-6 md:pl-12 py-20 mt-15 mb-25 flex flex-col gap-6 items-center">
+
+        <!-- Inner block: centered on the page, but its contents are left-aligned -->
+        <div class="flex flex-col gap-6 items-start text-left w-fit max-w-full">
+
           <h1 
             class="font-hero uppercase !text-7xl md:text-9xl lg:text-[180px] leading-none relative group cursor-default select-none !mb-15 md:mb-10"
             style="letter-spacing: 0.43em;"
@@ -185,6 +188,7 @@ onMounted(() => {
           </p>
 
         </div>
+      </div>
 
         <!-- RIGHT COLUMN (FilmReelWheel full height + overlap) -->
         <div class="md:col-span-4 mt-15 mb-25 relative flex items-end">
