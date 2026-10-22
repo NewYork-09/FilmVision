@@ -29,7 +29,7 @@ const functionalities = [
   },
   {
     title: 'AI-Assisted Strategic Recommendations',
-    subtitle: 'Suggests how to improve your film idea based on the results found in the Success Metrics and Comparative Analysis.',
+    subtitle: 'Suggests how to improve your film idea strictly based on the results found in the Success Metrics and Comparative Analysis.',
     description: 'Applies an ensemble of machine learning to evaluate weaknesses, risk factors, and market alignment, generating strategic recommendations based on historical performance clusters and trend analysis.',
     image: img3
   }
@@ -178,8 +178,8 @@ onMounted(() => {
             Bridging the "Cold-Start" Dilemma
           </h2>
 
-          <p class="text-base md:text-lg lg:text-xl text-[#0f0f0f]/80 leading-relaxed font-light font-body max-w-[700px]">
-            FilmVision is an AI-based predictive tool designed to enhance decision-making during the pre-production phase. 
+          <p class="text-base md:text-lg lg:text-xl text-[#0f0f0f]/80 leading-relaxed font-light font-body max-w-[900px]">
+            FilmVision is a data-driven predictive and comparative tool designed to enhance decision-making during the pre-production phase. 
             By analyzing story pitches, genres, and budget ranges against historical market data, 
             we provide creators with a data-driven roadmap to maximize their film's potential.
           </p>
