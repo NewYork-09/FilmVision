@@ -132,7 +132,7 @@ onMounted(() => {
     <!-- DESCRIPTION -->
     <section 
       id="description-section" 
-      class="px-0 overflow-visible bg-[#f2f2f2] relative"
+      class="px-0 overflow-visible desc-bg relative"
     >
       <div class="w-full grid md:grid-cols-12">
 
@@ -382,5 +382,17 @@ onMounted(() => {
   100% {
     background-position: -200% 0;
   }
+}
+
+/* Description section backdrop: gradient only (from the Idea Stage results panel) */
+.desc-bg {
+  background-color: #f4f5f7;
+  background-image:
+    radial-gradient(ellipse 38% 38% at 30% 90%, rgba(255, 179, 160, 0.35), rgba(255, 179, 160, 0)),
+    radial-gradient(ellipse 40% 40% at 18% 12%, rgba(159, 184, 255, 0.4), rgba(255, 215, 106, 0)),
+    radial-gradient(ellipse 38% 38% at 85% 45%, rgba(255, 215, 106, 0.55), rgba(159, 184, 255, 0)),
+    linear-gradient(135deg, #ffffff, #eceef2);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
 }
 </style>
