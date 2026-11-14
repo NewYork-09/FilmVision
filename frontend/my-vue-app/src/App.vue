@@ -41,8 +41,20 @@
   </nav>
 
   <main class="bg-[#0f0f0f] pt-[62px]" style="overflow-x: hidden; width: 100%; max-width: 100%;">
-    <router-view />
+    <!-- keep-alive: the Idea Stage keeps its inputs and results while you visit other pages -->
+    <router-view v-slot="{ Component }">
+      <keep-alive include="IdeaStage">
+        <component :is="Component" />
+      </keep-alive>
+    </router-view>
   </main>
+
+  <!-- ── NARROW WINDOW (desktop/laptop) BLOCKER ───────────────────────── -->
+  <div class="narrow-block-screen">
+    <img src="@/assets/logo.png" alt="FilmVision" class="mobile-block-logo" />
+    <h2 class="mobile-block-title">Give your screen a little more room.</h2>
+    <p class="mobile-block-text">Expand your browser window to experience FilmVision's full interface, predictive insights, and AI-powered creative guidance.</p>
+  </div>
 
   <!-- ── MOBILE / TABLET BLOCKER ─────────────────────────────────────── -->
   <div class="mobile-block-screen">
@@ -864,55 +876,70 @@ async function handleLogout() {
   font-weight: 500;
 }
 
-/* ── MOBILE / TABLET BLOCKER ──────────────────────────────────────── */
-.mobile-block-screen {
+/* ── SCREEN BLOCKERS ──────────────────────────────────────────────── */
+.mobile-block-screen,
+.narrow-block-screen {
   display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: #0f0f0f;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  gap: 1.2rem;
 }
 
+.mobile-block-logo {
+  width: 150px;
+  height: auto;
+  opacity: 0.9;
+  margin-bottom: 0.4rem;
+}
+
+.mobile-block-title {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #FFD700;
+  max-width: 320px;
+  line-height: 1.4;
+}
+
+.mobile-block-text {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 300;
+  color: #bcbcbc;
+  max-width: 300px;
+  line-height: 1.7;
+}
+
+/* Browser window too narrow (any device): ask to expand the window */
 @media (max-width: 950px) {
   .nav-container,
   main {
     display: none !important;
   }
+  .narrow-block-screen {
+    display: flex;
+  }
+}
 
+/* Phones / tablets (touch is the main input, no hover): the mobile message wins */
+@media (hover: none) and (pointer: coarse) {
+  .nav-container,
+  main {
+    display: none !important;
+  }
+  .narrow-block-screen {
+    display: none !important;
+  }
   .mobile-block-screen {
     display: flex;
-    position: fixed;
-    inset: 0;
-    z-index: 100000;
-    background: #0f0f0f;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 2rem;
-    gap: 1.2rem;
-  }
-
-  .mobile-block-logo {
-    width: 150px;
-    height: auto;
-    opacity: 0.9;
-    margin-bottom: 0.4rem;
-  }
-
-  .mobile-block-title {
-    font-family: 'Montserrat', sans-serif;
-    font-size: 1.25rem;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-    color: #FFD700;
-    max-width: 320px;
-    line-height: 1.4;
-  }
-
-  .mobile-block-text {
-    font-family: 'Montserrat', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 300;
-    color: #bcbcbc;
-    max-width: 300px;
-    line-height: 1.7;
   }
 }
 </style>

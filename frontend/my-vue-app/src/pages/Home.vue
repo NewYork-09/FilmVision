@@ -14,6 +14,10 @@ const scrollToContent = () => {
   content?.scrollIntoView({ behavior: 'smooth' })
 }
 
+const scrollToFunctionalities = () => {
+  document.getElementById('functionalities-section')?.scrollIntoView({ behavior: 'smooth' })
+}
+
 const functionalities = [
   {
     title: 'Predictive Success Metrics',
@@ -137,7 +141,7 @@ onMounted(() => {
       <div class="w-full grid md:grid-cols-12">
 
         <!-- LEFT COLUMN (FilmVision + Content stacked) -->
-        <div class="md:col-span-8 pl-6 md:pl-12 py-20 mt-15 mb-25 flex flex-col gap-6 items-center">
+        <div class="md:col-span-8 pl-6 md:pl-12 pt-10 pb-30 mt-15 mb-40 flex flex-col gap-6 items-center">
 
         <!-- Inner block: centered on the page, but its contents are left-aligned -->
         <div class="flex flex-col gap-6 items-start text-left w-fit max-w-full">
@@ -178,18 +182,49 @@ onMounted(() => {
           </h1>
 
           <h2 class="!text-3xl md:text-4xl font-medium font-title tracking-wide !text-[#0f0f0f]">
-            Bridging the "Cold-Start" Dilemma
+            Know your film's potential before bringing it to life.
           </h2>
 
           <p class="text-base md:text-lg lg:text-xl text-[#0f0f0f]/80 leading-relaxed font-light font-body max-w-[900px]">
-            FilmVision is a data-driven predictive and comparative tool designed to enhance decision-making during the pre-production phase. 
-            By analyzing story pitches, genres, and budget ranges against historical market data, 
-            we provide creators with a data-driven roadmap to maximize their film's potential.
+            FilmVision helps filmmakers evaluate early-stage film ideas through predictive analysis and comparisons with similar films, providing insights before production begins.
           </p>
 
-        </div>
-      </div>
+          <ul class="text-base md:text-lg lg:text-xl text-[#0f0f0f]/80 leading-relaxed font-light font-body max-w-[900px] pt-4 pl-6 md:pl-8 list-none space-y-2">
+            <li class="flex items-start gap-3">
+              <span class="shrink-0" aria-hidden="true">📈</span>
+              <span><b><b><b><b><b>Predict your film's potential success </b></b></b></b></b>using performance metrics.</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <span class="shrink-0" aria-hidden="true">🎬</span>
+              <span><b><b><b><b><b>Compare your idea</b></b></b></b></b> with similar films and their performance.</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <span class="shrink-0" aria-hidden="true">🧠</span>
+              <span><b><b><b><b><b>Get strategic and storytelling insights</b></b></b></b></b> to support your idea.</span>
+            </li>
+          </ul>
 
+          <!-- BUTTONS -->
+          <div class="flex flex-wrap items-center gap-4 pt-10">
+            <router-link 
+              to="/idea" 
+              class="bg-[#FFD700] text-[#1e1c21] px-8 py-3 rounded-[5px] font-medium uppercase border border-[#0f0f0f] hover:bg-[#0f0f0f] hover:text-[#FFD700] hover:border-[#FFD700] transition-colors duration-300"
+            >
+              Go to Idea Stage
+            </router-link>
+
+            <button 
+              type="button"
+              @click="scrollToFunctionalities"
+              class="text-[#0f0f0f] px-8 py-3 rounded-[5px] font-medium uppercase border border-[#0f0f0f] hover:bg-[#0f0f0f] hover:text-white transition-colors duration-300 cursor-pointer"
+            >
+              What Does it Do?
+            </button>
+          </div>
+
+        </div>
+        
+      </div>
         <!-- RIGHT COLUMN (FilmReelWheel full height + overlap) -->
         <div class="md:col-span-4 mt-15 mb-25 relative flex items-end">
           <img 
@@ -212,7 +247,7 @@ onMounted(() => {
     </section>
 
     <!-- FUNCTIONALITIES -->
-    <section class="py-20 px-6 md:px-16">
+    <section id="functionalities-section" class="py-20 px-6 md:px-16">
       <div class="max-w-[1100px] mx-auto">
 
         <!-- SECTION HEADER -->
