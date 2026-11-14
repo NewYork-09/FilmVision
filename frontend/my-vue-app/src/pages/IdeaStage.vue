@@ -88,7 +88,7 @@ function _clearResultsPanel() {
       <div style="background:linear-gradient(135deg,rgba(255,255,255,0.7),rgba(255,255,255,0.3));backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);border:1px solid rgba(255,255,255,0.85);box-shadow:0 8px 32px rgba(0,0,0,0.08);border-radius:16px;padding:3rem 2.1rem 2.1rem 2.1rem;display:flex;flex-direction:column;align-items:center;gap:1rem;max-width:340px;">
         <div style="font-size:3.5rem;opacity:0.3;">🎬</div>
         <h3 style="font-family:'Inria Serif',serif;font-size:1.5rem;color:#888;font-style:italic;">Ready to analyze your film</h3>
-        <p style="font-family:'Assistant',sans-serif;font-size:0.72rem;letter-spacing:0.1em;max-width:280px;line-height:1.8;">Fill in your project details on the left and click Analyze to get strategic insights, similar films, and AI-powered recommendations.</p>
+        <p style="font-family:'Assistant',sans-serif;font-size:0.72rem;letter-spacing:0.1em;max-width:280px;line-height:1.8;">Fill in your project details on the left and click Analyze to get strategic insights, similar films, and recommendations.</p>
       </div>
     </div>`;
   // Remove budget recommender block if present
@@ -445,7 +445,7 @@ function _clearResultsPanel() {
       <div class="empty-state-card">
         <div class="empty-icon">🎬</div>
         <h3>Ready to analyze your film</h3>
-        <p>Fill in your project details on the left and click Analyze to get strategic insights, similar films, and AI-powered recommendations.</p>
+        <p>Fill in your project details on the left and click Analyze to get strategic insights, similar films, and recommendations.</p>
       </div>
     </div>
   </section>

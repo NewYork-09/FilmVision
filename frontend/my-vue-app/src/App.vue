@@ -53,14 +53,14 @@
   <div class="narrow-block-screen">
     <img src="@/assets/logo.png" alt="FilmVision" class="mobile-block-logo" />
     <h2 class="mobile-block-title">Give your screen a little more room.</h2>
-    <p class="mobile-block-text">Expand your browser window to experience FilmVision's full interface, predictive insights, and AI-powered creative guidance.</p>
+    <p class="mobile-block-text">Expand your browser window to experience FilmVision's full interface, predictive insights, and creative guidance.</p>
   </div>
 
   <!-- ── MOBILE / TABLET BLOCKER ─────────────────────────────────────── -->
   <div class="mobile-block-screen">
     <img src="@/assets/logo.png" alt="FilmVision" class="mobile-block-logo" />
     <h2 class="mobile-block-title">Your next blockbuster deserves a bigger screen.</h2>
-    <p class="mobile-block-text">Experience predictive insights, creative inspiration, and AI-powered guidance on desktop and laptop while we build the next chapter for mobile.</p>
+    <p class="mobile-block-text">Experience predictive insights, creative inspiration, and guidance on desktop and laptop while we build the next chapter for mobile.</p>
   </div>
 
   <!-- ── AUTH MODAL ──────────────────────────────────────────────────── -->
